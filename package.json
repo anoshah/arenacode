@@ -1,10 +1,13 @@
 {
   "name": "quizarena",
-  "version": "8.0.0",
+  "version": "9.0.0",
   "description": "أريناكويز — منصة مسابقات تفاعلية",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "express": "^4.18.2",

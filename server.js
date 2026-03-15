@@ -10,17 +10,20 @@ const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname)));
 
-// ===== مسارات الملفات =====
-const DATA_DIR  = path.join(__dirname, 'data');
-const USERS_PATH  = path.join(DATA_DIR, 'users.json');
-const ADMIN_PATH  = path.join(DATA_DIR, 'admin.json');
+// ===== المسارات =====
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const DATA_DIR   = path.join(__dirname, 'data');
+const USERS_PATH = path.join(DATA_DIR, 'users.json');
+const ADMIN_PATH = path.join(DATA_DIR, 'admin.json');
 
-// تأكد من وجود مجلد data
+// خدمة الملفات الثابتة من مجلد public
+app.use(express.static(PUBLIC_DIR));
+
+// إنشاء مجلد data إذا لم يكن موجوداً
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-// ===== DB helpers =====
+// ===== DB Helpers =====
 function loadUsers() {
   if (!fs.existsSync(USERS_PATH))
     fs.writeFileSync(USERS_PATH, JSON.stringify({ users: {} }, null, 2));
@@ -32,7 +35,6 @@ function saveUsers(data) {
 
 function loadAdmin() {
   if (!fs.existsSync(ADMIN_PATH)) {
-    // كلمة سر افتراضية: admin123  (يجب تغييرها)
     const defaultAdmin = { password: hashPassword('admin123'), sessionTokens: [] };
     fs.writeFileSync(ADMIN_PATH, JSON.stringify(defaultAdmin, null, 2));
   }
@@ -50,7 +52,7 @@ function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-// ===== Middleware: حماية مسارات الأدمن =====
+// ===== Admin Middleware =====
 function adminAuth(req, res, next) {
   const token = req.headers['x-admin-token'];
   if (!token) return res.status(401).json({ error: 'غير مصرح' });
@@ -61,10 +63,9 @@ function adminAuth(req, res, next) {
 }
 
 // ===================================================
-// ===== API: المصادقة للمستخدمين (المضيفين) =====
+// ===== API: المستخدمون =====
 // ===================================================
 
-// تسجيل حساب جديد
 app.post('/api/register', (req, res) => {
   const { email, password, name } = req.body;
   if (!email || !password || !name)
@@ -80,8 +81,7 @@ app.post('/api/register', (req, res) => {
   db.users[key] = {
     name: name.trim(), email: key,
     password: hashPassword(password),
-    plan: 'free',
-    active: true,
+    plan: 'free', active: true,
     roomsThisMonth: 0,
     monthKey: new Date().toISOString().slice(0, 7),
     createdAt: new Date().toISOString(),
@@ -91,7 +91,6 @@ app.post('/api/register', (req, res) => {
   res.json({ success: true, token, name: db.users[key].name, plan: 'free' });
 });
 
-// تسجيل الدخول
 app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.json({ error: 'أدخل البريد وكلمة المرور' });
@@ -100,7 +99,7 @@ app.post('/api/login', (req, res) => {
   const key = email.toLowerCase().trim();
   const user = db.users[key];
 
-  if (!user) return res.json({ error: 'البريد غير مسجل' });
+  if (!user)  return res.json({ error: 'البريد غير مسجل' });
   if (!user.active) return res.json({ error: 'الحساب موقوف، تواصل مع الإدارة' });
   if (user.password !== hashPassword(password)) return res.json({ error: 'كلمة المرور غير صحيحة' });
 
@@ -110,7 +109,6 @@ app.post('/api/login', (req, res) => {
   res.json({ success: true, token: user.token, name: user.name, plan: user.plan });
 });
 
-// التحقق من التوكن
 app.post('/api/verify', (req, res) => {
   const { token } = req.body;
   if (!token) return res.json({ valid: false });
@@ -121,58 +119,45 @@ app.post('/api/verify', (req, res) => {
 });
 
 // ===================================================
-// ===== API: لوحة تحكم الأدمن =====
+// ===== API: الأدمن =====
 // ===================================================
 
-// دخول الأدمن
 app.post('/admin/api/login', (req, res) => {
   const { password } = req.body;
   if (!password) return res.json({ error: 'أدخل كلمة المرور' });
-
   const admin = loadAdmin();
   if (admin.password !== hashPassword(password))
     return res.json({ error: 'كلمة المرور غير صحيحة' });
 
   const token = generateToken();
   admin.sessionTokens.push(token);
-  // احتفظ بآخر 10 جلسات فقط
   if (admin.sessionTokens.length > 10) admin.sessionTokens.shift();
   saveAdmin(admin);
-
   res.json({ success: true, token });
 });
 
-// تغيير كلمة سر الأدمن
 app.post('/admin/api/change-password', adminAuth, (req, res) => {
   const { newPassword } = req.body;
   if (!newPassword || newPassword.length < 6)
     return res.json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' });
-
   const admin = loadAdmin();
   admin.password = hashPassword(newPassword);
-  admin.sessionTokens = []; // إلغاء جميع الجلسات
+  admin.sessionTokens = [];
   saveAdmin(admin);
   res.json({ success: true });
 });
 
-// جلب كل المستخدمين
 app.get('/admin/api/users', adminAuth, (req, res) => {
   const db = loadUsers();
   const users = Object.values(db.users).map(u => ({
-    email: u.email,
-    name: u.name,
-    plan: u.plan,
-    active: u.active,
-    roomsThisMonth: u.roomsThisMonth || 0,
-    createdAt: u.createdAt,
-    lastLogin: u.lastLogin || null
+    email: u.email, name: u.name, plan: u.plan,
+    active: u.active, roomsThisMonth: u.roomsThisMonth || 0,
+    createdAt: u.createdAt, lastLogin: u.lastLogin || null
   }));
-  // ترتيب: الأحدث أولاً
   users.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
   res.json({ users });
 });
 
-// إضافة مستخدم
 app.post('/admin/api/users', adminAuth, (req, res) => {
   const { email, password, name, plan } = req.body;
   if (!email || !password || !name)
@@ -185,8 +170,7 @@ app.post('/admin/api/users', adminAuth, (req, res) => {
   db.users[key] = {
     name: name.trim(), email: key,
     password: hashPassword(password),
-    plan: plan || 'free',
-    active: true,
+    plan: plan || 'free', active: true,
     roomsThisMonth: 0,
     monthKey: new Date().toISOString().slice(0, 7),
     createdAt: new Date().toISOString(),
@@ -196,7 +180,6 @@ app.post('/admin/api/users', adminAuth, (req, res) => {
   res.json({ success: true });
 });
 
-// تعديل مستخدم (اسم / باقة / تفعيل / كلمة مرور)
 app.put('/admin/api/users/:email', adminAuth, (req, res) => {
   const db = loadUsers();
   const key = req.params.email.toLowerCase();
@@ -214,7 +197,6 @@ app.put('/admin/api/users/:email', adminAuth, (req, res) => {
   res.json({ success: true });
 });
 
-// حذف مستخدم
 app.delete('/admin/api/users/:email', adminAuth, (req, res) => {
   const db = loadUsers();
   const key = req.params.email.toLowerCase();
@@ -224,15 +206,14 @@ app.delete('/admin/api/users/:email', adminAuth, (req, res) => {
   res.json({ success: true });
 });
 
-// إحصائيات سريعة
 app.get('/admin/api/stats', adminAuth, (req, res) => {
   const db = loadUsers();
   const all = Object.values(db.users);
   res.json({
-    total: all.length,
-    pro: all.filter(u => u.plan === 'pro').length,
-    free: all.filter(u => u.plan === 'free').length,
-    active: all.filter(u => u.active).length,
+    total:    all.length,
+    pro:      all.filter(u => u.plan === 'pro').length,
+    free:     all.filter(u => u.plan === 'free').length,
+    active:   all.filter(u => u.active).length,
     inactive: all.filter(u => !u.active).length,
   });
 });
@@ -243,13 +224,12 @@ app.get('/admin/api/stats', adminAuth, (req, res) => {
 function canCreateRoom(token) {
   const db = loadUsers();
   const user = Object.values(db.users).find(u => u.token === token);
-  if (!user)         return { allowed: false, reason: 'يجب تسجيل الدخول أولاً' };
-  if (!user.active)  return { allowed: false, reason: 'الحساب موقوف، تواصل مع الإدارة' };
+  if (!user)        return { allowed: false, reason: 'يجب تسجيل الدخول أولاً' };
+  if (!user.active) return { allowed: false, reason: 'الحساب موقوف، تواصل مع الإدارة' };
   if (user.plan === 'pro') return { allowed: true, user };
 
   const currentMonth = new Date().toISOString().slice(0, 7);
   if (user.monthKey !== currentMonth) { user.roomsThisMonth = 0; user.monthKey = currentMonth; }
-
   if (user.roomsThisMonth >= 3)
     return { allowed: false, reason: 'وصلت للحد المجاني (3 غرف/شهر). ترقّ للباقة Pro!' };
 
@@ -369,5 +349,10 @@ io.on('connection', (socket) => {
   });
 });
 
+// ===== تشغيل السيرفر =====
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 ArenaQuiz on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`🚀 ArenaQuiz running on port ${PORT}`);
+  console.log(`📁 Public: ${PUBLIC_DIR}`);
+  console.log(`💾 Data:   ${DATA_DIR}`);
+});
