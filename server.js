@@ -2,49 +2,42 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
+const { MongoClient } = require('mongodb');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
 
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
-// ===== المسارات =====
-const PUBLIC_DIR = path.join(__dirname, 'public');
-const DATA_DIR   = path.join(__dirname, 'data');
-const USERS_PATH = path.join(DATA_DIR, 'users.json');
-const ADMIN_PATH = path.join(DATA_DIR, 'admin.json');
-
-// خدمة الملفات الثابتة من مجلد public
-app.use(express.static(PUBLIC_DIR));
-
-// إنشاء مجلد data إذا لم يكن موجوداً
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-
-// ===== DB Helpers =====
-function loadUsers() {
-  if (!fs.existsSync(USERS_PATH))
-    fs.writeFileSync(USERS_PATH, JSON.stringify({ users: {} }, null, 2));
-  return JSON.parse(fs.readFileSync(USERS_PATH, 'utf8'));
-}
-function saveUsers(data) {
-  fs.writeFileSync(USERS_PATH, JSON.stringify(data, null, 2));
+// ===================================================
+// ===== MongoDB =====
+// ===================================================
+const MONGO_URI = process.env.MONGODB_URI;
+if (!MONGO_URI) {
+  console.error('❌ MONGODB_URI غير موجود في Environment Variables!');
+  process.exit(1);
 }
 
-function loadAdmin() {
-  if (!fs.existsSync(ADMIN_PATH)) {
-    const defaultAdmin = { password: hashPassword('admin123'), sessionTokens: [] };
-    fs.writeFileSync(ADMIN_PATH, JSON.stringify(defaultAdmin, null, 2));
+let usersCol, adminCol;
+
+async function connectDB() {
+  const client = new MongoClient(MONGO_URI);
+  await client.connect();
+  const db = client.db('quizarena');
+  usersCol = db.collection('users');
+  adminCol = db.collection('admin');
+  await usersCol.createIndex({ email: 1 }, { unique: true });
+  const adminDoc = await adminCol.findOne({ _id: 'config' });
+  if (!adminDoc) {
+    await adminCol.insertOne({ _id: 'config', password: hashPassword('admin123'), sessionTokens: [] });
+    console.log('✅ تم إنشاء حساب الأدمن الافتراضي (admin123)');
   }
-  return JSON.parse(fs.readFileSync(ADMIN_PATH, 'utf8'));
-}
-function saveAdmin(data) {
-  fs.writeFileSync(ADMIN_PATH, JSON.stringify(data, null, 2));
+  console.log('✅ MongoDB متصل');
 }
 
-// ===== Crypto =====
 function hashPassword(p) {
   return crypto.createHash('sha256').update(p + 'quizarena_salt').digest('hex');
 }
@@ -52,12 +45,11 @@ function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-// ===== Admin Middleware =====
-function adminAuth(req, res, next) {
+async function adminAuth(req, res, next) {
   const token = req.headers['x-admin-token'];
   if (!token) return res.status(401).json({ error: 'غير مصرح' });
-  const admin = loadAdmin();
-  if (!admin.sessionTokens.includes(token))
+  const adminDoc = await adminCol.findOne({ _id: 'config' });
+  if (!adminDoc || !adminDoc.sessionTokens.includes(token))
     return res.status(401).json({ error: 'الجلسة منتهية، أعد الدخول' });
   next();
 }
@@ -66,185 +58,152 @@ function adminAuth(req, res, next) {
 // ===== API: المستخدمون =====
 // ===================================================
 
-app.post('/api/register', (req, res) => {
-  const { email, password, name } = req.body;
-  if (!email || !password || !name)
-    return res.json({ error: 'جميع الحقول مطلوبة' });
-  if (password.length < 6)
-    return res.json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' });
-
-  const db = loadUsers();
-  const key = email.toLowerCase().trim();
-  if (db.users[key]) return res.json({ error: 'البريد مسجل مسبقاً' });
-
-  const token = generateToken();
-  db.users[key] = {
-    name: name.trim(), email: key,
-    password: hashPassword(password),
-    plan: 'free', active: true,
-    roomsThisMonth: 0,
-    monthKey: new Date().toISOString().slice(0, 7),
-    createdAt: new Date().toISOString(),
-    token
-  };
-  saveUsers(db);
-  res.json({ success: true, token, name: db.users[key].name, plan: 'free' });
+app.post('/api/register', async (req, res) => {
+  try {
+    const { email, password, name } = req.body;
+    if (!email || !password || !name) return res.json({ error: 'جميع الحقول مطلوبة' });
+    if (password.length < 6) return res.json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' });
+    const key = email.toLowerCase().trim();
+    const exists = await usersCol.findOne({ email: key });
+    if (exists) return res.json({ error: 'البريد مسجل مسبقاً' });
+    const token = generateToken();
+    await usersCol.insertOne({ name: name.trim(), email: key, password: hashPassword(password), plan: 'free', active: true, roomsThisMonth: 0, monthKey: new Date().toISOString().slice(0,7), createdAt: new Date().toISOString(), token });
+    res.json({ success: true, token, name: name.trim(), plan: 'free' });
+  } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
 });
 
-app.post('/api/login', (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) return res.json({ error: 'أدخل البريد وكلمة المرور' });
-
-  const db = loadUsers();
-  const key = email.toLowerCase().trim();
-  const user = db.users[key];
-
-  if (!user)  return res.json({ error: 'البريد غير مسجل' });
-  if (!user.active) return res.json({ error: 'الحساب موقوف، تواصل مع الإدارة' });
-  if (user.password !== hashPassword(password)) return res.json({ error: 'كلمة المرور غير صحيحة' });
-
-  user.token = generateToken();
-  user.lastLogin = new Date().toISOString();
-  saveUsers(db);
-  res.json({ success: true, token: user.token, name: user.name, plan: user.plan });
+app.post('/api/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) return res.json({ error: 'أدخل البريد وكلمة المرور' });
+    const key = email.toLowerCase().trim();
+    const user = await usersCol.findOne({ email: key });
+    if (!user)        return res.json({ error: 'البريد غير مسجل' });
+    if (!user.active) return res.json({ error: 'الحساب موقوف، تواصل مع الإدارة' });
+    if (user.password !== hashPassword(password)) return res.json({ error: 'كلمة المرور غير صحيحة' });
+    const token = generateToken();
+    await usersCol.updateOne({ email: key }, { $set: { token, lastLogin: new Date().toISOString() } });
+    res.json({ success: true, token, name: user.name, plan: user.plan });
+  } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
 });
 
-app.post('/api/verify', (req, res) => {
-  const { token } = req.body;
-  if (!token) return res.json({ valid: false });
-  const db = loadUsers();
-  const user = Object.values(db.users).find(u => u.token === token);
-  if (!user || !user.active) return res.json({ valid: false });
-  res.json({ valid: true, name: user.name, plan: user.plan });
+app.post('/api/verify', async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.json({ valid: false });
+    const user = await usersCol.findOne({ token });
+    if (!user || !user.active) return res.json({ valid: false });
+    res.json({ valid: true, name: user.name, plan: user.plan });
+  } catch(e) { res.json({ valid: false }); }
 });
 
 // ===================================================
 // ===== API: الأدمن =====
 // ===================================================
 
-app.post('/admin/api/login', (req, res) => {
-  const { password } = req.body;
-  if (!password) return res.json({ error: 'أدخل كلمة المرور' });
-  const admin = loadAdmin();
-  if (admin.password !== hashPassword(password))
-    return res.json({ error: 'كلمة المرور غير صحيحة' });
-
-  const token = generateToken();
-  admin.sessionTokens.push(token);
-  if (admin.sessionTokens.length > 10) admin.sessionTokens.shift();
-  saveAdmin(admin);
-  res.json({ success: true, token });
+app.post('/admin/api/login', async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) return res.json({ error: 'أدخل كلمة المرور' });
+    const adminDoc = await adminCol.findOne({ _id: 'config' });
+    if (adminDoc.password !== hashPassword(password)) return res.json({ error: 'كلمة المرور غير صحيحة' });
+    const token = generateToken();
+    let tokens = adminDoc.sessionTokens || [];
+    tokens.push(token);
+    if (tokens.length > 10) tokens = tokens.slice(-10);
+    await adminCol.updateOne({ _id: 'config' }, { $set: { sessionTokens: tokens } });
+    res.json({ success: true, token });
+  } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
 });
 
-app.post('/admin/api/change-password', adminAuth, (req, res) => {
-  const { newPassword } = req.body;
-  if (!newPassword || newPassword.length < 6)
-    return res.json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' });
-  const admin = loadAdmin();
-  admin.password = hashPassword(newPassword);
-  admin.sessionTokens = [];
-  saveAdmin(admin);
-  res.json({ success: true });
+app.post('/admin/api/change-password', adminAuth, async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) return res.json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' });
+    await adminCol.updateOne({ _id: 'config' }, { $set: { password: hashPassword(newPassword), sessionTokens: [] } });
+    res.json({ success: true });
+  } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
 });
 
-app.get('/admin/api/users', adminAuth, (req, res) => {
-  const db = loadUsers();
-  const users = Object.values(db.users).map(u => ({
-    email: u.email, name: u.name, plan: u.plan,
-    active: u.active, roomsThisMonth: u.roomsThisMonth || 0,
-    createdAt: u.createdAt, lastLogin: u.lastLogin || null
-  }));
-  users.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-  res.json({ users });
+app.get('/admin/api/users', adminAuth, async (req, res) => {
+  try {
+    const users = await usersCol.find({}, { projection: { password: 0, token: 0 } }).sort({ createdAt: -1 }).toArray();
+    res.json({ users });
+  } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
 });
 
-app.post('/admin/api/users', adminAuth, (req, res) => {
-  const { email, password, name, plan } = req.body;
-  if (!email || !password || !name)
-    return res.json({ error: 'الاسم والبريد وكلمة المرور مطلوبة' });
-
-  const db = loadUsers();
-  const key = email.toLowerCase().trim();
-  if (db.users[key]) return res.json({ error: 'البريد مسجل مسبقاً' });
-
-  db.users[key] = {
-    name: name.trim(), email: key,
-    password: hashPassword(password),
-    plan: plan || 'free', active: true,
-    roomsThisMonth: 0,
-    monthKey: new Date().toISOString().slice(0, 7),
-    createdAt: new Date().toISOString(),
-    token: generateToken()
-  };
-  saveUsers(db);
-  res.json({ success: true });
+app.post('/admin/api/users', adminAuth, async (req, res) => {
+  try {
+    const { email, password, name, plan } = req.body;
+    if (!email || !password || !name) return res.json({ error: 'الاسم والبريد وكلمة المرور مطلوبة' });
+    const key = email.toLowerCase().trim();
+    const exists = await usersCol.findOne({ email: key });
+    if (exists) return res.json({ error: 'البريد مسجل مسبقاً' });
+    await usersCol.insertOne({ name: name.trim(), email: key, password: hashPassword(password), plan: plan || 'free', active: true, roomsThisMonth: 0, monthKey: new Date().toISOString().slice(0,7), createdAt: new Date().toISOString(), token: generateToken() });
+    res.json({ success: true });
+  } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
 });
 
-app.put('/admin/api/users/:email', adminAuth, (req, res) => {
-  const db = loadUsers();
-  const key = req.params.email.toLowerCase();
-  const user = db.users[key];
-  if (!user) return res.json({ error: 'المستخدم غير موجود' });
-
-  const { name, plan, active, password, resetRooms } = req.body;
-  if (name !== undefined)   user.name = name.trim();
-  if (plan !== undefined)   user.plan = plan;
-  if (active !== undefined) user.active = active;
-  if (password && password.length >= 6) user.password = hashPassword(password);
-  if (resetRooms) { user.roomsThisMonth = 0; user.monthKey = new Date().toISOString().slice(0, 7); }
-
-  saveUsers(db);
-  res.json({ success: true });
+app.put('/admin/api/users/:email', adminAuth, async (req, res) => {
+  try {
+    const key = req.params.email.toLowerCase();
+    const { name, plan, active, password, resetRooms } = req.body;
+    const updates = {};
+    if (name !== undefined)   updates.name   = name.trim();
+    if (plan !== undefined)   updates.plan   = plan;
+    if (active !== undefined) updates.active = active;
+    if (password && password.length >= 6) updates.password = hashPassword(password);
+    if (resetRooms) { updates.roomsThisMonth = 0; updates.monthKey = new Date().toISOString().slice(0,7); }
+    const result = await usersCol.updateOne({ email: key }, { $set: updates });
+    if (result.matchedCount === 0) return res.json({ error: 'المستخدم غير موجود' });
+    res.json({ success: true });
+  } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
 });
 
-app.delete('/admin/api/users/:email', adminAuth, (req, res) => {
-  const db = loadUsers();
-  const key = req.params.email.toLowerCase();
-  if (!db.users[key]) return res.json({ error: 'المستخدم غير موجود' });
-  delete db.users[key];
-  saveUsers(db);
-  res.json({ success: true });
+app.delete('/admin/api/users/:email', adminAuth, async (req, res) => {
+  try {
+    const key = req.params.email.toLowerCase();
+    const result = await usersCol.deleteOne({ email: key });
+    if (result.deletedCount === 0) return res.json({ error: 'المستخدم غير موجود' });
+    res.json({ success: true });
+  } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
 });
 
-app.get('/admin/api/stats', adminAuth, (req, res) => {
-  const db = loadUsers();
-  const all = Object.values(db.users);
-  res.json({
-    total:    all.length,
-    pro:      all.filter(u => u.plan === 'pro').length,
-    free:     all.filter(u => u.plan === 'free').length,
-    active:   all.filter(u => u.active).length,
-    inactive: all.filter(u => !u.active).length,
-  });
+app.get('/admin/api/stats', adminAuth, async (req, res) => {
+  try {
+    const [total, pro, free, active, inactive] = await Promise.all([
+      usersCol.countDocuments(),
+      usersCol.countDocuments({ plan: 'pro' }),
+      usersCol.countDocuments({ plan: 'free' }),
+      usersCol.countDocuments({ active: true }),
+      usersCol.countDocuments({ active: false }),
+    ]);
+    res.json({ total, pro, free, active, inactive });
+  } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
 });
 
 // ===================================================
 // ===== فحص حصة الغرف =====
 // ===================================================
-function canCreateRoom(token) {
-  const db = loadUsers();
-  const user = Object.values(db.users).find(u => u.token === token);
+async function canCreateRoom(token) {
+  const user = await usersCol.findOne({ token });
   if (!user)        return { allowed: false, reason: 'يجب تسجيل الدخول أولاً' };
   if (!user.active) return { allowed: false, reason: 'الحساب موقوف، تواصل مع الإدارة' };
   if (user.plan === 'pro') return { allowed: true, user };
 
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  if (user.monthKey !== currentMonth) { user.roomsThisMonth = 0; user.monthKey = currentMonth; }
-  if (user.roomsThisMonth >= 3)
-    return { allowed: false, reason: 'وصلت للحد المجاني (3 غرف/شهر). ترقّ للباقة Pro!' };
+  const currentMonth = new Date().toISOString().slice(0,7);
+  let rooms = user.monthKey !== currentMonth ? 0 : (user.roomsThisMonth || 0);
+  if (rooms >= 3) return { allowed: false, reason: 'وصلت للحد المجاني (3 غرف/شهر). ترقّ للباقة Pro!' };
 
-  user.roomsThisMonth++;
-  const db2 = loadUsers();
-  db2.users[user.email] = user;
-  saveUsers(db2);
-  return { allowed: true, user };
+  await usersCol.updateOne({ token }, { $set: { monthKey: currentMonth, roomsThisMonth: rooms + 1 } });
+  const updated = await usersCol.findOne({ token });
+  return { allowed: true, user: updated };
 }
 
 // ===================================================
 // ===== منطق اللعبة =====
 // ===================================================
 const rooms = {};
-
 function generateCode() {
   let code;
   do { code = String(Math.floor(100 + Math.random() * 900)); } while (rooms[code]);
@@ -256,15 +215,16 @@ function getPlayers(room) {
 
 io.on('connection', (socket) => {
 
-  socket.on('host:create', ({ name, token }, cb) => {
-    const check = canCreateRoom(token);
+  socket.on('host:create', async ({ name, token }, cb) => {
+    const check = await canCreateRoom(token);
     if (!check.allowed) return cb({ error: check.reason });
     const code = generateCode();
-    rooms[code] = { code, hostId: socket.id, hostName: check.user.name, players: {}, status: 'waiting', question: null, fastestAnswer: null, questionIndex: 0 };
+    rooms[code] = { code, hostId: socket.id, players: {}, status: 'waiting', question: null, fastestAnswer: null, questionIndex: 0 };
     rooms[code].players[socket.id] = { id: socket.id, name, score: 0, answered: false, isHost: true };
-    socket.join(code); socket.roomCode = code; socket.isHost = true; socket.playerName = name;
+    socket.join(code); socket.roomCode = code; socket.isHost = true;
     io.to(code).emit('room:players', getPlayers(rooms[code]));
-    cb({ code, plan: check.user.plan, roomsLeft: check.user.plan === 'pro' ? '∞' : String(3 - check.user.roomsThisMonth) });
+    const roomsLeft = check.user.plan === 'pro' ? '∞' : String(Math.max(0, 3 - (check.user.roomsThisMonth || 0)));
+    cb({ code, plan: check.user.plan, roomsLeft });
   });
 
   socket.on('guest:join', ({ code, name }, cb) => {
@@ -274,7 +234,7 @@ io.on('connection', (socket) => {
     const names = Object.values(room.players).map(p => p.name);
     if (names.includes(name)) return cb({ error: 'الاسم مستخدم، اختر اسماً آخر!' });
     room.players[socket.id] = { id: socket.id, name, score: 0, answered: false, isHost: false };
-    socket.join(code); socket.roomCode = code; socket.playerName = name;
+    socket.join(code); socket.roomCode = code;
     io.to(code).emit('room:players', getPlayers(room));
     cb({ success: true });
   });
@@ -349,10 +309,11 @@ io.on('connection', (socket) => {
   });
 });
 
-// ===== تشغيل السيرفر =====
+// ===== تشغيل =====
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`🚀 ArenaQuiz running on port ${PORT}`);
-  console.log(`📁 Public: ${PUBLIC_DIR}`);
-  console.log(`💾 Data:   ${DATA_DIR}`);
+connectDB().then(() => {
+  server.listen(PORT, () => console.log(`🚀 ArenaQuiz on port ${PORT}`));
+}).catch(err => {
+  console.error('❌ فشل الاتصال بـ MongoDB:', err.message);
+  process.exit(1);
 });
