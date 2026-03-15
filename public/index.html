@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⚡ أريناكويز</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="/socket.io/socket.io.js"></script>
+<style>
+:root {
+  --gold:#FFD700; --gold2:#FFA500; --neon:#00F5FF; --purple:#8B00FF;
+  --dark:#050A1A; --card:rgba(10,22,40,0.93); --correct:#00FF88; --wrong:#FF3355; --text:#E8F4FD;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Tajawal',sans-serif;background:var(--dark);color:var(--text);min-height:100vh;overflow-x:hidden;}
+.bg{position:fixed;inset:0;z-index:0;
+  background:radial-gradient(ellipse at 20% 50%,rgba(139,0,255,.15) 0%,transparent 60%),
+  radial-gradient(ellipse at 80% 20%,rgba(0,245,255,.1) 0%,transparent 50%),
+  radial-gradient(ellipse at 50% 80%,rgba(255,215,0,.07) 0%,transparent 50%),var(--dark);}
+.stars{position:fixed;inset:0;z-index:0;
+  background-image:radial-gradient(1px 1px at 5% 10%,rgba(255,255,255,.8),transparent),
+  radial-gradient(1px 1px at 15% 40%,rgba(255,255,255,.5),transparent),
+  radial-gradient(1.5px 1.5px at 25% 70%,rgba(255,255,255,.7),transparent),
+  radial-gradient(1px 1px at 35% 20%,rgba(255,255,255,.6),transparent),
+  radial-gradient(1px 1px at 55% 85%,rgba(255,255,255,.7),transparent),
+  radial-gradient(1px 1px at 65% 30%,rgba(255,255,255,.5),transparent),
+  radial-gradient(1.5px 1.5px at 85% 15%,rgba(255,255,255,.8),transparent),
+  radial-gradient(1px 1px at 95% 45%,rgba(255,255,255,.5),transparent),
+  radial-gradient(1px 1px at 30% 95%,rgba(255,255,255,.6),transparent),
+  radial-gradient(1px 1px at 60% 5%,rgba(255,255,255,.7),transparent),
+  radial-gradient(1px 1px at 80% 90%,rgba(255,255,255,.5),transparent);
+  animation:twinkle 3s ease-in-out infinite alternate;}
+@keyframes twinkle{0%{opacity:.5}100%{opacity:1}}
+.screen{display:none;position:relative;z-index:10;min-height:100vh;}
+.screen.active{display:flex;flex-direction:column;align-items:center;justify-content:center;}
+
+/* LOGO */
+.logo{text-align:center;margin-bottom:36px;}
+.logo-icon{font-size:72px;display:block;animation:float 3s ease-in-out infinite;filter:drop-shadow(0 0 28px var(--gold));}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+.logo h1{font-size:48px;font-weight:900;font-family:'Cairo',sans-serif;
+  background:linear-gradient(135deg,var(--gold),var(--neon),var(--gold));background-size:200%;
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;animation:shimmer 3s linear infinite;}
+@keyframes shimmer{0%{background-position:0%}100%{background-position:200%}}
+.logo p{color:rgba(255,255,255,.4);font-size:14px;margin-top:6px;letter-spacing:3px;}
+
+/* CARD */
+.card{background:var(--card);border:1px solid rgba(255,255,255,.1);border-radius:24px;padding:36px;
+  backdrop-filter:blur(20px);box-shadow:0 20px 60px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.1);width:100%;max-width:480px;}
+.card-title{font-size:24px;font-weight:800;text-align:center;margin-bottom:26px;color:var(--gold);}
+
+/* INPUTS */
+.inp-g{margin-bottom:16px;}
+.inp-g label{display:block;font-size:12px;color:rgba(255,255,255,.5);margin-bottom:6px;font-weight:600;letter-spacing:1px;}
+.inp-g input{width:100%;padding:14px 16px;background:rgba(255,255,255,.07);border:2px solid rgba(255,255,255,.1);
+  border-radius:12px;color:white;font-family:'Tajawal',sans-serif;font-size:16px;transition:all .3s;text-align:right;}
+.inp-g input:focus{outline:none;border-color:var(--neon);background:rgba(0,245,255,.05);box-shadow:0 0 18px rgba(0,245,255,.2);}
+
+/* BUTTONS */
+.btn{width:100%;padding:16px;border:none;border-radius:12px;font-family:'Tajawal',sans-serif;font-size:18px;font-weight:800;cursor:pointer;transition:all .3s;margin-top:10px;}
+.btn-gold{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000;box-shadow:0 6px 24px rgba(255,165,0,.35);}
+.btn-gold:hover{transform:translateY(-3px);box-shadow:0 12px 36px rgba(255,165,0,.55);}
+.btn-blue{background:linear-gradient(135deg,#00F5FF,#0055FF);color:#000;box-shadow:0 6px 24px rgba(0,245,255,.25);}
+.btn-blue:hover{transform:translateY(-3px);box-shadow:0 12px 36px rgba(0,245,255,.45);}
+.btn-ghost{background:rgba(255,255,255,.07);border:2px solid rgba(255,255,255,.12);color:rgba(255,255,255,.6);font-size:15px;}
+.btn-ghost:hover{background:rgba(255,255,255,.12);}
+.btn-entry{padding:20px 36px;border:none;border-radius:18px;font-family:'Tajawal',sans-serif;font-size:20px;font-weight:700;cursor:pointer;transition:all .3s;position:relative;overflow:hidden;width:100%;}
+.btn-entry.host{background:linear-gradient(135deg,#FFD700,#FF6B00);color:#000;box-shadow:0 8px 36px rgba(255,165,0,.4);}
+.btn-entry.host:hover{transform:translateY(-4px) scale(1.02);box-shadow:0 16px 48px rgba(255,165,0,.6);}
+.btn-entry.guest{background:linear-gradient(135deg,#00F5FF,#0066FF);color:#000;box-shadow:0 8px 36px rgba(0,245,255,.3);}
+.btn-entry.guest:hover{transform:translateY(-4px) scale(1.02);box-shadow:0 16px 48px rgba(0,245,255,.5);}
+.btn-entry::before{content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent);transition:.5s;}
+.btn-entry:hover::before{left:100%;}
+
+/* CODE BOX */
+.code-box{background:linear-gradient(135deg,rgba(255,215,0,.15),rgba(255,165,0,.1));border:2px solid var(--gold);
+  border-radius:16px;padding:20px;text-align:center;margin-bottom:20px;}
+.code-label{font-size:11px;color:rgba(255,255,255,.4);letter-spacing:3px;margin-bottom:4px;}
+.code-num{font-size:64px;font-weight:900;font-family:'Cairo',sans-serif;color:var(--gold);letter-spacing:12px;text-shadow:0 0 36px rgba(255,215,0,.7);line-height:1;}
+
+/* LOBBY */
+.lobby-chips{display:flex;flex-wrap:wrap;gap:9px;justify-content:center;margin:16px 0;min-height:46px;}
+.chip{padding:8px 16px;background:rgba(0,245,255,.1);border:1px solid rgba(0,245,255,.3);border-radius:28px;font-size:13px;font-weight:700;color:var(--neon);animation:chipIn .4s ease;}
+@keyframes chipIn{from{opacity:0;transform:scale(.5)}to{opacity:1;transform:scale(1)}}
+
+/* ===== HOST SCREEN ===== */
+#host-screen{padding:14px;flex-direction:column;align-items:center;justify-content:flex-start;overflow-y:auto;min-height:100vh;}
+.host-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;
+  background:var(--card);border:1px solid rgba(255,255,255,.1);border-radius:16px;margin-bottom:12px;backdrop-filter:blur(20px);width:100%;max-width:760px;}
+.host-title{font-size:18px;font-weight:800;color:var(--gold);}
+.code-badge{background:linear-gradient(135deg,rgba(255,215,0,.2),rgba(255,165,0,.15));border:1px solid var(--gold);
+  border-radius:9px;padding:6px 16px;font-size:20px;font-weight:900;color:var(--gold);letter-spacing:6px;}
+
+/* HOST MAIN LAYOUT: single column */
+.host-grid{display:flex;flex-direction:column;gap:12px;width:100%;max-width:760px;}
+
+/* PLAYERS PANEL - bottom strip */
+.panel{background:var(--card);border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:18px;backdrop-filter:blur(20px);overflow:hidden;}
+.panel-ttl{font-size:13px;font-weight:700;color:var(--neon);letter-spacing:2px;margin-bottom:14px;display:flex;align-items:center;gap:6px;}
+.p-list{display:flex;flex-direction:column;gap:7px;max-height:320px;overflow-y:auto;}
+.p-list::-webkit-scrollbar{width:3px;}
+.p-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:3px;}
+.p-item{display:flex;align-items:center;padding:9px 13px;background:rgba(255,255,255,.05);border-radius:10px;border:1px solid rgba(255,255,255,.06);animation:slideIn .4s ease;gap:8px;}
+@keyframes slideIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.p-rank{font-size:14px;min-width:22px;}
+.p-info{min-width:0;}
+.p-name{font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.p-status{font-size:10px;color:rgba(255,255,255,.35);}
+.p-score{font-size:18px;font-weight:900;color:var(--gold);font-family:'Cairo',sans-serif;margin-right:4px;}
+.kick-btn{background:rgba(255,51,85,.2);border:1px solid rgba(255,51,85,.4);border-radius:6px;color:var(--wrong);
+  font-size:11px;padding:3px 8px;cursor:pointer;transition:all .2s;white-space:nowrap;font-family:'Tajawal',sans-serif;font-weight:700;}
+.kick-btn:hover{background:rgba(255,51,85,.4);transform:scale(1.05);}
+.host-stats-bar{display:flex;gap:8px;margin-bottom:10px;align-items:center;}
+
+/* QUESTION PANEL */
+.q-panel{display:flex;flex-direction:column;}
+.q-box{background:linear-gradient(135deg,rgba(139,0,255,.2),rgba(0,102,255,.15));border:1px solid rgba(139,0,255,.4);
+  border-radius:16px;padding:24px;margin-bottom:12px;min-height:110px;display:flex;align-items:center;justify-content:center;
+  text-align:center;font-size:20px;font-weight:700;line-height:1.65;color:white;position:relative;}
+.q-cat{position:absolute;top:12px;left:14px;background:rgba(0,245,255,.2);border-radius:6px;padding:3px 9px;font-size:10px;color:var(--neon);}
+.q-idx{position:absolute;top:12px;right:14px;background:rgba(139,0,255,.4);border-radius:6px;padding:3px 9px;font-size:10px;color:rgba(255,255,255,.6);}
+.host-opts{display:flex;flex-direction:column;gap:7px;}
+.h-opt{padding:11px 14px;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.1);border-radius:11px;color:white;font-family:'Tajawal',sans-serif;font-size:14px;font-weight:600;cursor:pointer;text-align:right;transition:all .22s cubic-bezier(.34,1.56,.64,1);display:flex;align-items:center;gap:9px;}
+.h-opt:hover:not(:disabled):not(.sel){background:rgba(0,245,255,.1);border-color:var(--neon);transform:scale(1.01);}
+.h-opt.sel{background:rgba(139,0,255,.3);border-color:var(--purple);cursor:not-allowed;}
+.h-opt.correct{background:rgba(0,255,136,.25)!important;border-color:var(--correct)!important;color:var(--correct)!important;}
+.h-opt.wrong{background:rgba(255,51,85,.25)!important;border-color:var(--wrong)!important;color:var(--wrong)!important;}
+.host-actions{display:flex;gap:8px;}
+.btn-act{flex:1;padding:13px;border:none;border-radius:10px;font-family:'Tajawal',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:all .3s;}
+.btn-act:hover{transform:translateY(-2px);}
+.btn-act.purple{background:linear-gradient(135deg,#8B00FF,#0066FF);color:#fff;box-shadow:0 4px 14px rgba(139,0,255,.35);}
+.btn-act.red{background:linear-gradient(135deg,var(--wrong),#AA0022);color:#fff;}
+
+/* TIMER */
+.timer-bar-wrap{background:rgba(255,255,255,.1);border-radius:7px;height:6px;margin-bottom:12px;overflow:hidden;}
+.timer-bar{height:100%;border-radius:7px;background:linear-gradient(90deg,var(--gold),var(--neon));transition:width .5s linear;box-shadow:0 0 10px rgba(255,215,0,.5);}
+.timer-num{text-align:center;font-size:28px;font-weight:900;font-family:'Cairo',sans-serif;color:var(--gold);margin-bottom:8px;}
+.stat{padding:4px 11px;border-radius:18px;font-size:11px;font-weight:700;}
+.stat.answered{background:rgba(0,245,255,.15);color:var(--neon);border:1px solid rgba(0,245,255,.3);}
+.stat.total{background:rgba(255,255,255,.08);color:rgba(255,255,255,.4);}
+
+/* ===== PLAYER SCREEN ===== */
+#player-screen{padding:20px 16px 32px;flex-direction:column;align-items:center;justify-content:flex-start;overflow-y:auto;min-height:100vh;}
+.p-hdr{display:flex;align-items:center;justify-content:space-between;width:100%;max-width:580px;
+  padding:12px 18px;background:var(--card);border:1px solid rgba(255,255,255,.1);border-radius:16px;margin-bottom:18px;backdrop-filter:blur(20px);}
+.p-name-badge{font-size:17px;font-weight:800;color:var(--neon);}
+.p-score-badge{background:linear-gradient(135deg,rgba(255,215,0,.2),rgba(255,165,0,.15));border:1px solid var(--gold);border-radius:9px;padding:6px 16px;font-size:20px;font-weight:900;color:var(--gold);}
+.p-q-box{background:var(--card);border:1px solid rgba(139,0,255,.4);border-radius:20px;padding:26px;width:100%;max-width:580px;backdrop-filter:blur(20px);}
+.waiting{padding:46px 20px;text-align:center;}
+.spin{font-size:50px;animation:spin 2s linear infinite;display:block;margin-bottom:16px;}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.wait-txt{font-size:19px;font-weight:700;color:rgba(255,255,255,.6);}
+.p-q-text{font-size:18px;font-weight:700;line-height:1.7;margin-bottom:22px;color:white;}
+.p-opts{display:flex;flex-direction:column;gap:9px;}
+.p-opt{padding:15px 18px;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.1);border-radius:13px;
+  color:white;font-family:'Tajawal',sans-serif;font-size:15px;font-weight:600;cursor:pointer;text-align:right;
+  transition:all .25s cubic-bezier(.34,1.56,.64,1);display:flex;align-items:center;gap:11px;}
+.p-opt:hover:not(:disabled):not(.sel){background:rgba(0,245,255,.1);border-color:var(--neon);transform:scale(1.02);}
+.p-opt.sel{background:rgba(139,0,255,.3);border-color:var(--purple);cursor:not-allowed;}
+.p-opt.correct{background:rgba(0,255,136,.25)!important;border-color:var(--correct)!important;color:var(--correct)!important;}
+.p-opt.wrong{background:rgba(255,51,85,.25)!important;border-color:var(--wrong)!important;color:var(--wrong)!important;}
+.p-info-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.cat-badge{background:rgba(0,245,255,.15);border:1px solid rgba(0,245,255,.3);border-radius:6px;padding:3px 9px;font-size:10px;color:var(--neon);}
+.p-timer{font-size:24px;font-weight:900;color:var(--gold);font-family:'Cairo',sans-serif;}
+
+/* FEEDBACK */
+.feedback{position:fixed;inset:0;z-index:100;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.7);backdrop-filter:blur(10px);}
+.feedback.show{display:flex;}
+.fb-card{text-align:center;padding:46px 56px;border-radius:26px;animation:popIn .5s cubic-bezier(.34,1.56,.64,1);}
+@keyframes popIn{from{transform:scale(0);opacity:0}to{transform:scale(1);opacity:1}}
+.fb-card.c{background:linear-gradient(135deg,rgba(0,255,136,.3),rgba(0,180,90,.2));border:3px solid var(--correct);}
+.fb-card.w{background:linear-gradient(135deg,rgba(255,51,85,.3),rgba(180,0,40,.2));border:3px solid var(--wrong);}
+.fb-emoji{font-size:56px;display:block;}
+.fb-text{font-size:22px;font-weight:800;display:block;margin-top:10px;}
+
+/* KICKED SCREEN */
+.kicked-box{text-align:center;padding:50px 30px;max-width:400px;}
+.kicked-emoji{font-size:80px;display:block;margin-bottom:20px;}
+
+/* NOTIFICATION */
+.notif{position:fixed;top:18px;left:50%;transform:translateX(-50%) translateY(-120px);
+  background:var(--card);border:1px solid var(--gold);border-radius:13px;padding:12px 26px;
+  font-size:14px;font-weight:700;color:var(--gold);z-index:200;transition:transform .4s cubic-bezier(.34,1.56,.64,1);backdrop-filter:blur(20px);}
+.notif.show{transform:translateX(-50%) translateY(0);}
+
+/* FINAL */
+.final-wrap{text-align:center;padding:36px 20px;max-width:580px;width:100%;}
+.final-title{font-size:42px;font-weight:900;font-family:'Cairo',sans-serif;
+  background:linear-gradient(135deg,var(--gold),var(--neon));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:6px;}
+.lb-list{display:flex;flex-direction:column;gap:10px;margin:24px 0;}
+.lb-item{display:flex;align-items:center;padding:14px 20px;border-radius:13px;animation:bounceIn .5s ease both;}
+@keyframes bounceIn{from{opacity:0;transform:scale(.8) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.lb-item:nth-child(1){background:linear-gradient(135deg,rgba(255,215,0,.25),rgba(255,165,0,.15));border:2px solid var(--gold);transform:scale(1.03);}
+.lb-item:nth-child(2){background:linear-gradient(135deg,rgba(192,192,192,.2),rgba(160,160,160,.1));border:1px solid rgba(192,192,192,.5);}
+.lb-item:nth-child(3){background:linear-gradient(135deg,rgba(205,127,50,.2),rgba(160,90,30,.1));border:1px solid rgba(205,127,50,.5);}
+.lb-item:nth-child(n+4){background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);}
+.lb-rank{font-size:26px;margin-left:12px;min-width:36px;}
+.lb-name{flex:1;font-size:17px;font-weight:700;text-align:right;}
+.lb-pts{font-size:24px;font-weight:900;color:var(--gold);font-family:'Cairo',sans-serif;}
+.host-crown{font-size:11px;color:var(--gold);margin-right:4px;}
+
+/* CONFETTI */
+.conf{position:fixed;width:10px;height:10px;z-index:300;animation:confFall linear both;border-radius:2px;}
+@keyframes confFall{from{transform:translateY(-20px) rotate(0deg);opacity:1}to{transform:translateY(100vh) rotate(720deg);opacity:0}}
+
+/* PLAYERS STATS PANEL */
+.p-stats-panel{width:100%;max-width:580px;margin-top:12px;background:rgba(10,22,40,0.85);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:14px 16px;backdrop-filter:blur(16px);}
+.p-stats-title{font-size:11px;color:rgba(255,255,255,.35);letter-spacing:2px;margin-bottom:10px;text-align:center;}
+.p-stats-list{display:flex;flex-direction:column;gap:6px;max-height:180px;overflow-y:auto;}
+.p-stats-list::-webkit-scrollbar{width:3px;}
+.p-stats-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:3px;}
+.p-stat-row{display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(255,255,255,.04);border-radius:9px;border:1px solid rgba(255,255,255,.05);transition:background .3s;}
+.p-stat-row.me{background:rgba(255,215,0,.08);border-color:rgba(255,215,0,.2);}
+.p-stat-row.answered{border-color:rgba(0,255,136,.15);}
+.p-stat-rank{font-size:14px;min-width:22px;text-align:center;}
+.p-stat-name{flex:1;font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.p-stat-status{font-size:10px;color:rgba(255,255,255,.3);}
+.p-stat-score{font-size:15px;font-weight:900;color:var(--gold);font-family:'Cairo',sans-serif;min-width:32px;text-align:left;}
+
+@media(max-width:600px){.code-num{font-size:48px;letter-spacing:8px}.logo h1{font-size:34px}}
+
+/* ===== AUTH STYLES ===== */
+.auth-tabs{display:flex;gap:0;margin-bottom:24px;background:rgba(255,255,255,.06);border-radius:12px;padding:4px;}
+.auth-tab{flex:1;padding:10px;border:none;border-radius:9px;font-family:'Tajawal',sans-serif;font-size:15px;font-weight:700;cursor:pointer;background:transparent;color:rgba(255,255,255,.4);transition:all .3s;}
+.auth-tab.active{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000;}
+.auth-form{display:none;}
+.auth-form.active{display:block;}
+.plan-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;}
+.plan-free{background:rgba(255,255,255,.1);color:rgba(255,255,255,.5);}
+.plan-pro{background:linear-gradient(135deg,rgba(255,215,0,.3),rgba(255,165,0,.2));color:var(--gold);border:1px solid rgba(255,215,0,.3);}
+.user-bar{display:flex;align-items:center;gap:10px;padding:10px 16px;background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.2);border-radius:12px;margin-bottom:16px;}
+.user-bar-name{font-weight:700;color:var(--gold);flex:1;}
+.rooms-left{font-size:11px;color:rgba(255,255,255,.4);}
+.btn-logout{padding:6px 14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:rgba(255,255,255,.5);font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;transition:all .3s;}
+.btn-logout:hover{background:rgba(255,255,255,.15);color:white;}
+.upgrade-banner{background:linear-gradient(135deg,rgba(139,0,255,.25),rgba(255,165,0,.15));border:1px solid rgba(255,215,0,.3);border-radius:14px;padding:16px;text-align:center;margin-bottom:16px;}
+.upgrade-banner h3{color:var(--gold);font-size:16px;margin-bottom:6px;}
+.upgrade-banner p{color:rgba(255,255,255,.5);font-size:12px;margin-bottom:12px;}
+.btn-upgrade{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000;border:none;border-radius:10px;padding:10px 24px;font-family:'Tajawal',sans-serif;font-size:14px;font-weight:800;cursor:pointer;transition:all .3s;}
+.btn-upgrade:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(255,165,0,.4);}
+.inp-g .inp-hint{font-size:10px;color:rgba(255,255,255,.3);margin-top:4px;}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="stars"></div>
+<div class="notif" id="notif"></div>
+<div class="feedback" id="feedback">
+  <div class="fb-card" id="fbCard">
+    <span class="fb-emoji" id="fbEmoji"></span>
+    <span class="fb-text" id="fbText"></span>
+  </div>
+</div>
+
+<!-- ===== ENTRY ===== -->
+<div class="screen active" id="s-entry">
+  <div style="max-width:460px;width:100%;padding:28px 18px;text-align:center">
+    <div class="logo">
+      <span class="logo-icon">⚡</span>
+      <h1>أريناكويز</h1>
+      <p>ARENA QUIZ — بطولة المعرفة</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:13px;">
+      <button class="btn-entry host" onclick="goHostEntry()">👑 دخول المضيف</button>
+      <button class="btn-entry guest" onclick="go('s-guest-setup')">🎮 دخول اللاعب</button>
+    </div>
+    <div id="connStatus" style="margin-top:16px;font-size:12px;color:rgba(255,255,255,.3)">جارٍ الاتصال...</div>
+    <div style="margin-top:22px;padding-top:16px;border-top:1px solid rgba(255,255,255,.07);text-align:center;">
+      <p style="font-size:11px;color:rgba(255,255,255,.22);letter-spacing:1px;margin-bottom:5px">برمجة</p>
+      <a href="mailto:ziz737@gmail.com" style="font-size:13px;color:rgba(0,245,255,.5);text-decoration:none;font-weight:600;transition:color .3s" onmouseover="this.style.color='rgba(0,245,255,1)'" onmouseout="this.style.color='rgba(0,245,255,.5)'">ziz737@gmail.com</a>
+    </div>
+  </div>
+</div>
+
+<!-- ===== AUTH (تسجيل / دخول المضيف) ===== -->
+<div class="screen" id="s-auth">
+  <div class="card" style="max-width:440px;">
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tabLogin" onclick="switchTab('login')">تسجيل الدخول</button>
+      <button class="auth-tab" id="tabRegister" onclick="switchTab('register')">حساب جديد</button>
+    </div>
+
+    <!-- فورم الدخول -->
+    <div class="auth-form active" id="formLogin">
+      <div class="inp-g">
+        <label>البريد الإلكتروني</label>
+        <input id="loginEmail" type="email" placeholder="example@email.com" style="direction:ltr;text-align:left">
+      </div>
+      <div class="inp-g">
+        <label>كلمة المرور</label>
+        <input id="loginPass" type="password" placeholder="••••••••" style="direction:ltr;text-align:left">
+      </div>
+      <button class="btn btn-gold" onclick="doLogin()">🔑 دخول</button>
+    </div>
+
+    <!-- فورم التسجيل -->
+    <div class="auth-form" id="formRegister">
+      <div class="inp-g">
+        <label>اسمك</label>
+        <input id="regName" type="text" placeholder="اسمك الكريم..." maxlength="30">
+      </div>
+      <div class="inp-g">
+        <label>البريد الإلكتروني</label>
+        <input id="regEmail" type="email" placeholder="example@email.com" style="direction:ltr;text-align:left">
+      </div>
+      <div class="inp-g">
+        <label>كلمة المرور</label>
+        <input id="regPass" type="password" placeholder="6 أحرف على الأقل" style="direction:ltr;text-align:left">
+        <div class="inp-hint">الباقة المجانية: 3 غرف شهرياً</div>
+      </div>
+      <button class="btn btn-gold" onclick="doRegister()">✨ إنشاء حساب مجاني</button>
+    </div>
+
+    <button class="btn btn-ghost" style="margin-top:8px" onclick="go('s-entry')">← رجوع</button>
+  </div>
+</div>
+
+<!-- ===== HOST SETUP ===== -->
+<div class="screen" id="s-host-setup">
+  <div class="card">
+    <div class="card-title">👑 إعداد الغرفة</div>
+
+    <!-- معلومات المستخدم المسجل -->
+    <div class="user-bar" id="userBar">
+      <div>
+        <div class="user-bar-name" id="userBarName">—</div>
+        <div class="rooms-left" id="userRoomsLeft"></div>
+      </div>
+      <span class="plan-badge" id="userPlanBadge"></span>
+      <button class="btn-logout" onclick="doLogout()">خروج</button>
+    </div>
+
+    <!-- تنبيه الترقية (يظهر عند Pro) -->
+    <div class="upgrade-banner" id="upgradeBanner" style="display:none">
+      <h3>⭐ باقة Pro</h3>
+      <p>غرف غير محدودة + أولوية الدعم</p>
+      <button class="btn-upgrade" onclick="notify('🚀 قريباً! سيتم إضافة بوابة الدفع')">ترقّ الآن — $9/شهر</button>
+    </div>
+
+    <div class="inp-g">
+      <label>اسمك في المسابقة</label>
+      <input id="hostName" type="text" placeholder="اسم المضيف..." maxlength="20">
+    </div>
+    <div class="code-box">
+      <div class="code-label">كود الغرفة سيظهر بعد الإنشاء</div>
+      <div class="code-num" id="setupCode">...</div>
+    </div>
+    <button class="btn btn-gold" onclick="hostCreate()">🚀 إنشاء الغرفة</button>
+    <button class="btn btn-ghost" onclick="go('s-entry')">← رجوع</button>
+  </div>
+</div>
+
+<!-- ===== GUEST SETUP ===== -->
+<div class="screen" id="s-guest-setup">
+  <div class="card">
+    <div class="card-title">🎮 انضم للمسابقة</div>
+    <div class="inp-g">
+      <label>اسمك في المسابقة</label>
+      <input id="gName" type="text" placeholder="أدخل اسمك..." maxlength="20">
+    </div>
+    <div class="inp-g">
+      <label>كود الغرفة (3 أرقام)</label>
+      <input id="gCode" type="text" placeholder="742" maxlength="3" inputmode="numeric"
+             style="text-align:center;letter-spacing:10px;font-size:28px;font-weight:900">
+    </div>
+    <button class="btn btn-blue" onclick="guestJoin()">✨ انضم الآن</button>
+    <button class="btn btn-ghost" onclick="go('s-entry')">← رجوع</button>
+  </div>
+</div>
+
+<!-- ===== LOBBY ===== -->
+<div class="screen" id="s-lobby">
+  <div class="card" style="max-width:520px">
+    <div class="card-title">🏟️ صالة الانتظار</div>
+    <div class="code-box">
+      <div class="code-label">كود الغرفة — شاركه مع المتسابقين</div>
+      <div class="code-num" id="lobbyCode">---</div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:8px;">
+      <span style="color:rgba(255,255,255,.5);font-size:13px;">المتسابقون</span>
+      <span id="pCount" style="background:rgba(0,245,255,.2);border-radius:18px;padding:2px 11px;font-size:12px;color:var(--neon)">0</span>
+    </div>
+    <div class="lobby-chips" id="lobbyChips">
+      <span style="color:rgba(255,255,255,.3);font-size:13px">في انتظار انضمام المتسابقين...</span>
+    </div>
+    <button class="btn btn-gold" style="background:linear-gradient(135deg,#00FF88,#009955);color:#000;" onclick="hostStart()">🎯 ابدأ المسابقة!</button>
+    <p style="text-align:center;color:rgba(255,255,255,.3);font-size:11px;margin-top:9px">المضيف يشارك أيضاً كلاعب</p>
+  </div>
+</div>
+
+<!-- ===== HOST SCREEN ===== -->
+<div class="screen" id="host-screen">
+  <div class="host-hdr">
+    <div class="host-title">👑 <span id="hostNameBadge">المضيف</span></div>
+    <div style="display:flex;align-items:center;gap:9px">
+      <span style="color:rgba(255,255,255,.35);font-size:11px">الغرفة</span>
+      <div class="code-badge" id="hCodeBadge">---</div>
+    </div>
+  </div>
+
+  <div class="host-grid">
+    <!-- السؤال + إجابات المضيف + أزرار التحكم -->
+    <div class="panel q-panel">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+        <div class="timer-num" id="hTimer" style="margin:0;font-size:26px;min-width:44px">⏱</div>
+        <div class="timer-bar-wrap" style="flex:1;margin:0"><div class="timer-bar" id="hTimerBar" style="width:100%"></div></div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <div class="stat answered" id="answeredStat">0 أجاب</div>
+          <div class="stat total" id="totalStat">من 0</div>
+        </div>
+      </div>
+      <div class="q-box" id="hQBox"><span style="color:rgba(255,255,255,.3)">اضغط "سؤال جديد" لبدء الجولة</span></div>
+      <!-- خيارات إجابة المضيف -->
+      <div class="host-opts" id="hostOptsList" style="margin-bottom:12px">
+        <div style="color:rgba(255,255,255,.2);font-size:12px;text-align:center;padding:10px 0">انتظر السؤال...</div>
+      </div>
+      <div class="host-actions">
+        <button class="btn-act purple" id="btnNextQ" onclick="hostNextQ()">🎲 سؤال جديد</button>
+        <button class="btn-act red" onclick="hostEnd()">🏁 إنهاء المسابقة</button>
+      </div>
+    </div>
+
+    <!-- قائمة المتسابقين أسفل -->
+    <div class="panel">
+      <div class="panel-ttl">🏆 المتسابقون</div>
+      <div class="p-list" id="hPList"><p style="color:rgba(255,255,255,.3);font-size:12px;text-align:center">لا يوجد لاعبون</p></div>
+    </div>
+
+    <!-- نظام النقاط أسفل الشاشة -->
+    <div class="panel" style="background:rgba(10,22,40,0.7);">
+      <div class="panel-ttl" style="justify-content:center;margin-bottom:10px">💡 نظام النقاط</div>
+      <div style="display:flex;justify-content:center;gap:24px;flex-wrap:wrap;">
+        <div style="text-align:center;font-size:12px;color:rgba(255,255,255,.5);">
+          <div style="font-size:22px;margin-bottom:4px">✅</div>
+          <div>صحيحة = الثواني المتبقية</div>
+        </div>
+        <div style="text-align:center;font-size:12px;color:rgba(255,215,0,.6);">
+          <div style="font-size:22px;margin-bottom:4px">⚡</div>
+          <div>الأسرع = أكثر نقاط</div>
+        </div>
+        <div style="text-align:center;font-size:12px;color:rgba(255,255,255,.5);">
+          <div style="font-size:22px;margin-bottom:4px">❌</div>
+          <div>خاطئة = 0 نقطة</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PLAYER SCREEN ===== -->
+<div class="screen" id="player-screen">
+  <div class="p-hdr">
+    <div class="p-name-badge" id="pNameBadge">—</div>
+    <div style="text-align:center">
+      <div style="font-size:10px;color:rgba(255,255,255,.35);margin-bottom:2px">النقاط</div>
+      <div class="p-score-badge" id="pScoreBadge">0</div>
+    </div>
+  </div>
+  <div class="p-q-box">
+    <div class="waiting" id="pWaiting">
+      <span class="spin">⚙️</span>
+      <div class="wait-txt">انتظر بدء المضيف...</div>
+      <p style="color:rgba(255,255,255,.3);font-size:12px;margin-top:7px">استعد للمسابقة!</p>
+    </div>
+    <div id="pGame" style="display:none">
+      <div class="p-info-row">
+        <span class="cat-badge" id="pCat">—</span>
+        <span class="p-timer" id="pTimer">⏱</span>
+      </div>
+      <div class="p-q-text" id="pQText">—</div>
+      <div class="p-opts" id="pOpts"></div>
+    </div>
+  </div>
+
+  <!-- إحصائية اللاعبين -->
+  <div class="p-stats-panel" id="pStatsPanel">
+    <div class="p-stats-title">🏆 ترتيب اللاعبين</div>
+    <div class="p-stats-list" id="pStatsList">
+      <div style="color:rgba(255,255,255,.25);font-size:12px;text-align:center;padding:8px">في انتظار اللاعبين...</div>
+    </div>
+  </div>
+
+  <!-- نظام النقاط -->
+  <div class="p-stats-panel" style="margin-top:10px;">
+    <div class="p-stats-title">💡 نظام النقاط</div>
+    <div style="display:flex;justify-content:center;gap:18px;flex-wrap:wrap;">
+      <div style="text-align:center;font-size:12px;color:rgba(255,255,255,.5);">
+        <div style="font-size:20px;margin-bottom:4px">✅</div>
+        <div>صحيحة = الثواني المتبقية</div>
+      </div>
+      <div style="text-align:center;font-size:12px;color:rgba(255,215,0,.6);">
+        <div style="font-size:20px;margin-bottom:4px">⚡</div>
+        <div>الأسرع = أكثر نقاط</div>
+      </div>
+      <div style="text-align:center;font-size:12px;color:rgba(255,255,255,.5);">
+        <div style="font-size:20px;margin-bottom:4px">❌</div>
+        <div>خاطئة = 0 نقطة</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== KICKED ===== -->
+<div class="screen" id="s-kicked">
+  <div class="kicked-box">
+    <span class="kicked-emoji">🚫</span>
+    <h2 style="font-size:28px;font-weight:900;color:var(--wrong);margin-bottom:12px">تم إزالتك من الغرفة</h2>
+    <p style="color:rgba(255,255,255,.5);font-size:15px;margin-bottom:28px">قام المضيف بإزالتك من المسابقة</p>
+    <button class="btn btn-gold" onclick="restart()" style="max-width:250px;margin:0 auto;display:block">🏠 الصفحة الرئيسية</button>
+  </div>
+</div>
+
+<!-- ===== FINAL ===== -->
+<div class="screen" id="s-final">
+  <div class="final-wrap">
+    <div style="font-size:72px;animation:float 2s ease-in-out infinite;display:block;text-align:center">🏆</div>
+    <div class="final-title">النتائج النهائية</div>
+    <p style="color:rgba(255,255,255,.4);font-size:14px">المسابقة انتهت — إليك ترتيب المتسابقين</p>
+    <div class="lb-list" id="finalLB"></div>
+    <button class="btn btn-gold" onclick="restart()" style="max-width:260px;margin:0 auto;display:block">🔄 مسابقة جديدة</button>
+  </div>
+</div>
+
+<script src="questions.js"></script>
+<script>
+
+
+// ===== STATE =====
+let S = {
+  roomCode:null, isHost:false, name:null, playerId:null,
+  score:0, answered:false, currentQ:null,
+  timerInterval:null, timerVal:20, usedIdx:[], players:[],
+  revealDone: false,
+  // Auth
+  token: null, userName: null, userPlan: null
+};
+let socket;
+
+// ===== AUTH =====
+function authInit() {
+  const token = localStorage.getItem('qa_token');
+  const name = localStorage.getItem('qa_name');
+  const plan = localStorage.getItem('qa_plan');
+  if (token && name) {
+    S.token = token;
+    S.userName = name;
+    S.userPlan = plan;
+    // تحقق من صحة التوكن
+    fetch('/api/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token })
+    }).then(r => r.json()).then(data => {
+      if (!data.valid) { doLogout(); }
+      else {
+        S.userName = data.name;
+        S.userPlan = data.plan;
+        localStorage.setItem('qa_name', data.name);
+        localStorage.setItem('qa_plan', data.plan);
+      }
+    });
+  }
+}
+
+function switchTab(tab) {
+  document.getElementById('tabLogin').classList.toggle('active', tab === 'login');
+  document.getElementById('tabRegister').classList.toggle('active', tab === 'register');
+  document.getElementById('formLogin').classList.toggle('active', tab === 'login');
+  document.getElementById('formRegister').classList.toggle('active', tab === 'register');
+}
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  if (!email || !pass) { notify('⚠️ أدخل البريد وكلمة المرور'); return; }
+
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password: pass })
+  }).then(r => r.json());
+
+  if (res.error) { notify('❌ ' + res.error); return; }
+
+  S.token = res.token;
+  S.userName = res.name;
+  S.userPlan = res.plan;
+  localStorage.setItem('qa_token', res.token);
+  localStorage.setItem('qa_name', res.name);
+  localStorage.setItem('qa_plan', res.plan);
+
+  notify('✅ مرحباً ' + res.name + '!');
+  openHostSetup();
+}
+
+async function doRegister() {
+  const name = document.getElementById('regName').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const pass = document.getElementById('regPass').value;
+  if (!name || !email || !pass) { notify('⚠️ جميع الحقول مطلوبة'); return; }
+
+  const res = await fetch('/api/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, email, password: pass })
+  }).then(r => r.json());
+
+  if (res.error) { notify('❌ ' + res.error); return; }
+
+  S.token = res.token;
+  S.userName = res.name;
+  S.userPlan = res.plan;
+  localStorage.setItem('qa_token', res.token);
+  localStorage.setItem('qa_name', res.name);
+  localStorage.setItem('qa_plan', res.plan);
+
+  notify('🎉 تم إنشاء حسابك! مرحباً ' + res.name);
+  openHostSetup();
+}
+
+function doLogout() {
+  S.token = null;
+  S.userName = null;
+  S.userPlan = null;
+  localStorage.removeItem('qa_token');
+  localStorage.removeItem('qa_name');
+  localStorage.removeItem('qa_plan');
+  go('s-entry');
+  notify('👋 تم تسجيل الخروج');
+}
+
+function goHostEntry() {
+  if (S.token && S.userName) {
+    openHostSetup();
+  } else {
+    go('s-auth');
+  }
+}
+
+function openHostSetup() {
+  // تحديث معلومات المستخدم في شاشة الإعداد
+  document.getElementById('userBarName').textContent = '👋 ' + S.userName;
+  document.getElementById('hostName').value = S.userName;
+
+  const planBadge = document.getElementById('userPlanBadge');
+  if (S.userPlan === 'pro') {
+    planBadge.textContent = '⭐ Pro';
+    planBadge.className = 'plan-badge plan-pro';
+    document.getElementById('userRoomsLeft').textContent = 'غرف غير محدودة';
+    document.getElementById('upgradeBanner').style.display = 'none';
+  } else {
+    planBadge.textContent = '🆓 مجاني';
+    planBadge.className = 'plan-badge plan-free';
+    document.getElementById('userRoomsLeft').textContent = 'باقة مجانية: 3 غرف/شهر';
+    document.getElementById('upgradeBanner').style.display = 'block';
+  }
+
+  go('s-host-setup');
+}
+
+// ===== SOCKET =====
+function initSocket() {
+  socket = io();
+
+  socket.on('connect', () => {
+    document.getElementById('connStatus').textContent = '🟢 متصل';
+    document.getElementById('connStatus').style.color = 'var(--correct)';
+  });
+  socket.on('disconnect', () => {
+    document.getElementById('connStatus').textContent = '🔴 انقطع الاتصال';
+    document.getElementById('connStatus').style.color = 'var(--wrong)';
+  });
+
+  socket.on('room:players', (players) => {
+    S.players = players;
+    updateLobby(players);
+    if (S.isHost) renderHostPlayers(players);
+    renderPlayerStats(players);
+  });
+
+  socket.on('game:started', () => {
+    if (S.isHost) return;
+    go('player-screen');
+    notify('🎮 المسابقة بدأت! استعد!');
+  });
+
+  socket.on('question:new', (data) => {
+    if (S.isHost) {
+      // Host renders his own answer buttons
+      renderHostAnswerBtns(data);
+      return;
+    }
+    S.answered = false;
+    S.currentQ = data;
+    renderPlayerQuestion(data);
+  });
+
+  socket.on('player:answer:confirm', ({ isCorrect }) => {
+    if (!isCorrect) showFeedback(false, 0);
+  });
+
+  socket.on('player:point', ({ score, points }) => {
+    S.score = score;
+    document.getElementById('pScoreBadge').textContent = score;
+    showFeedback(true, points);
+    confetti();
+  });
+
+  socket.on('question:reveal', ({ correctAnswer }) => {
+    clearInterval(S.timerInterval);
+    if (S.isHost) {
+      revealHostOpts(correctAnswer);
+      if (S.currentQ) {
+        const letters = ['أ','ب','ج','د'];
+        notify(`✅ الإجابة: ${letters[correctAnswer]}) ${S.currentQ.o[correctAnswer]}`);
+      }
+    } else {
+      revealPlayerOpts(correctAnswer);
+    }
+  });
+
+  socket.on('host:fastest', ({ name, time }) => {
+    notify(`⚡ الأسرع: ${name} (${(time/1000).toFixed(1)}ث)`);
+  });
+
+  socket.on('game:ended', ({ players }) => {
+    showFinal(players);
+  });
+
+  socket.on('game:host_left', () => {
+    notify('⚠️ المضيف غادر الغرفة');
+    setTimeout(restart, 2500);
+  });
+
+  socket.on('player:kicked', () => {
+    clearInterval(S.timerInterval);
+    go('s-kicked');
+  });
+}
+
+// ===== UI =====
+function go(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+function notify(msg) {
+  const n = document.getElementById('notif');
+  n.textContent = msg;
+  n.classList.add('show');
+  setTimeout(() => n.classList.remove('show'), 3000);
+}
+
+function showFeedback(correct, points) {
+  const overlay = document.getElementById('feedback');
+  document.getElementById('fbEmoji').textContent = correct ? '🎉' : '😔';
+  document.getElementById('fbText').textContent = correct ? `+${points||1} نقطة! أحسنت!` : 'إجابة خاطئة!';
+  document.getElementById('fbCard').className = 'fb-card ' + (correct ? 'c' : 'w');
+  overlay.classList.add('show');
+  setTimeout(() => overlay.classList.remove('show'), 1800);
+}
+
+function confetti() {
+  const colors = ['#FFD700','#FF6B00','#00F5FF','#8B00FF','#00FF88','#FF3355','#FF69B4'];
+  for (let i = 0; i < 22; i++) {
+    const p = document.createElement('div');
+    p.className = 'conf';
+    p.style.cssText = `left:${Math.random()*100}vw;background:${colors[Math.floor(Math.random()*colors.length)]};width:${6+Math.random()*7}px;height:${6+Math.random()*7}px;animation-duration:${1.5+Math.random()*2}s;animation-delay:${Math.random()*.5}s;border-radius:${Math.random()>.5?'50%':'2px'}`;
+    document.body.appendChild(p);
+    setTimeout(() => p.remove(), 3000);
+  }
+}
+
+// ===== HOST ACTIONS =====
+function hostCreate() {
+  const name = document.getElementById('hostName').value.trim();
+  if (!name) { notify('⚠️ أدخل اسمك أولاً'); return; }
+  if (!S.token) { notify('⚠️ يجب تسجيل الدخول أولاً'); go('s-auth'); return; }
+  socket.emit('host:create', { name, token: S.token }, (res) => {
+    if (res.error) { notify('❌ ' + res.error); return; }
+    S.roomCode = res.code;
+    S.isHost = true;
+    S.name = name;
+    document.getElementById('setupCode').textContent = res.code;
+    document.getElementById('lobbyCode').textContent = res.code;
+    document.getElementById('hCodeBadge').textContent = res.code;
+    document.getElementById('hostNameBadge').textContent = name;
+    // تحديث الغرف المتبقية
+    if (res.roomsLeft !== undefined && S.userPlan !== 'pro') {
+      document.getElementById('userRoomsLeft').textContent = `غرف متبقية هذا الشهر: ${res.roomsLeft}`;
+    }
+    go('s-lobby');
+    notify('✅ الغرفة جاهزة! كود: ' + res.code);
+  });
+}
+
+function hostStart() {
+  socket.emit('host:start');
+  go('host-screen');
+  notify('🎮 المسابقة انطلقت!');
+}
+
+function updateLobby(players) {
+  const chips = document.getElementById('lobbyChips');
+  const cnt = document.getElementById('pCount');
+  if (!chips) return;
+  cnt.textContent = players.length;
+  chips.innerHTML = players.length === 0
+    ? '<span style="color:rgba(255,255,255,.3);font-size:13px">في انتظار انضمام المتسابقين...</span>'
+    : players.map(p => `<div class="chip">${p.isHost?'👑':'👤'} ${p.name}</div>`).join('');
+}
+
+function getRandomQ() {
+  const avail = QS.reduce((acc,_,i) => { if (!S.usedIdx.includes(i)) acc.push(i); return acc; }, []);
+  if (avail.length === 0) { S.usedIdx = []; return getRandomQ(); }
+  const idx = avail[Math.floor(Math.random()*avail.length)];
+  S.usedIdx.push(idx);
+  return { ...QS[idx], index: S.usedIdx.length };
+}
+
+function setNextQBtn(enabled) {
+  const btn = document.getElementById('btnNextQ');
+  if (!btn) return;
+  btn.disabled = !enabled;
+  btn.style.opacity = enabled ? '1' : '0.4';
+  btn.style.cursor = enabled ? 'pointer' : 'not-allowed';
+  btn.style.transform = 'none';
+  btn.textContent = enabled ? '🎲 سؤال جديد' : '🎲 سؤال جديد';
+}
+
+function hostNextQ() {
+  clearInterval(S.timerInterval);
+  const q = getRandomQ();
+  S.currentQ = q;
+  S.timerVal = 10;
+  S.answered = false;
+  S.revealDone = false;
+
+  // Display question
+  document.getElementById('hQBox').innerHTML = `
+    <span class="q-cat">${q.cat}</span>
+    <span class="q-idx">س ${q.index}</span>
+    <span>${q.q}</span>`;
+
+  // Render host answer buttons
+  const letters = ['أ','ب','ج','د'];
+  document.getElementById('hostOptsList').innerHTML = q.o.map((o,i) => `
+    <button class="h-opt" id="hSelfOpt${i}" onclick="hostAnswer(${i})">
+      <span class="opt-ltr" style="width:26px;height:26px;background:rgba(255,255,255,.1);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0">${letters[i]}</span>
+      <span>${o}</span>
+    </button>`).join('');
+
+  // Send to server
+  socket.emit('host:question', {
+    question: q.q, options: q.o, category: q.cat, answer: q.a, index: q.index
+  });
+
+  startHostTimer();
+  setNextQBtn(false);
+}
+
+function renderHostAnswerBtns(data) {
+  S.answered = false;
+  S.revealDone = false;
+}
+
+function hostAnswer(idx) {
+  if (S.answered) return;
+  S.answered = true;
+  document.querySelectorAll('.h-opt').forEach(b => b.disabled = true);
+  document.getElementById(`hSelfOpt${idx}`)?.classList.add('sel');
+  socket.emit('player:answer', { optIndex: idx });
+  notify('✅ تم تسجيل إجابتك!');
+}
+
+function revealHostOpts(correctIdx) {
+  document.querySelectorAll('.h-opt').forEach((btn, i) => {
+    btn.disabled = true;
+    if (i === correctIdx) btn.classList.add('correct');
+    else if (btn.classList.contains('sel')) btn.classList.add('wrong');
+  });
+}
+
+function checkAutoReveal() {
+  if (S.revealDone || !S.currentQ) return;
+  const answered = S.players.filter(p => p.answered).length;
+  const total = S.players.length;
+  if (total > 0 && answered >= total) {
+    autoReveal();
+  }
+}
+
+function autoReveal() {
+  if (S.revealDone || !S.currentQ) return;
+  S.revealDone = true;
+  clearInterval(S.timerInterval);
+  socket.emit('host:reveal');
+  enableNextQBtn();
+}
+
+function startHostTimer() {
+  const total = 10;
+  S.timerVal = total;
+  S.revealDone = false;
+  // تعطيل زر سؤال جديد أثناء السؤال
+  const btn = document.getElementById('btnNextQ');
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.4'; btn.style.cursor = 'not-allowed'; }
+  clearInterval(S.timerInterval);
+  S.timerInterval = setInterval(() => {
+    S.timerVal--;
+    const pct = (S.timerVal / total) * 100;
+    document.getElementById('hTimer').textContent = S.timerVal;
+    document.getElementById('hTimerBar').style.width = pct + '%';
+    document.getElementById('hTimerBar').style.background =
+      S.timerVal <= 3 ? 'linear-gradient(90deg,#FF3355,#FF6600)' : 'linear-gradient(90deg,var(--gold),var(--neon))';
+    if (S.timerVal <= 0) {
+      clearInterval(S.timerInterval);
+      autoReveal();
+    }
+  }, 1000);
+}
+
+function enableNextQBtn() {
+  const btn = document.getElementById('btnNextQ');
+  if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.style.cursor = 'pointer'; }
+}
+
+function hostReveal() {
+  autoReveal();
+}
+
+function hostEnd() {
+  clearInterval(S.timerInterval);
+  socket.emit('host:end');
+}
+
+function renderHostPlayers(players) {
+  const list = document.getElementById('hPList');
+  const ranks = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+  const answered = players.filter(p => p.answered).length;
+  document.getElementById('answeredStat').textContent = `${answered} أجاب`;
+  document.getElementById('totalStat').textContent = `من ${players.length}`;
+
+  // Check auto-reveal condition
+  checkAutoReveal();
+
+  list.innerHTML = players.length === 0
+    ? '<p style="color:rgba(255,255,255,.3);font-size:12px;text-align:center">لا يوجد لاعبون</p>'
+    : players.map((p,i) => {
+        const isMe = p.id === socket.id;
+        const kickBtn = !isMe
+          ? `<button class="kick-btn" onclick="kickPlayer('${p.id}','${p.name}')">حذف</button>`
+          : '';
+        return `
+        <div class="p-item" style="${isMe?'border-color:rgba(255,215,0,.3);background:rgba(255,215,0,.06)':''}${p.answered?';border-color:rgba(0,255,136,.2)':''}">
+          <span class="p-rank">${ranks[i]||'👤'}</span>
+          <div class="p-info">
+            <div class="p-name">${p.isHost?'👑 ':''}<span style="${isMe?'color:var(--gold)':''}">${p.name}</span>${isMe?' (أنت)':''}</div>
+            <div class="p-status">${p.answered ? '✅ أجاب' : '⏳ ينتظر'}</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+            <div class="p-score">${p.score||0}</div>
+            ${p.lastPoints != null ? `<div style="font-size:10px;font-weight:700;color:${p.lastPoints>0?'var(--correct)':'rgba(255,255,255,.25)'}">${p.lastPoints>0?'+'+p.lastPoints:'—'}</div>` : ''}
+          </div>
+          ${kickBtn}
+        </div>`;
+      }).join('');
+}
+
+function kickPlayer(playerId, name) {
+  if (!confirm(`هل تريد حذف اللاعب "${name}" من الغرفة؟`)) return;
+  socket.emit('host:kick', { playerId }, (res) => {
+    if (res?.success) notify(`🚫 تم حذف ${res.name} من الغرفة`);
+  });
+}
+
+// ===== PLAYER STATS PANEL =====
+function renderPlayerStats(players) {
+  const list = document.getElementById('pStatsList');
+  if (!list) return;
+  const ranks = ['🥇','🥈','🥉','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣','🔟'];
+  if (!players || players.length === 0) {
+    list.innerHTML = '<div style="color:rgba(255,255,255,.25);font-size:12px;text-align:center;padding:8px">في انتظار اللاعبين...</div>';
+    return;
+  }
+  list.innerHTML = players.map((p, i) => {
+    const isMe = p.id === socket.id;
+    return `
+    <div class="p-stat-row ${isMe ? 'me' : ''} ${p.answered ? 'answered' : ''}">
+      <span class="p-stat-rank">${ranks[i] || (i+1)}</span>
+      <div style="flex:1;min-width:0">
+        <div class="p-stat-name">${p.isHost ? '👑 ' : ''}${p.name}${isMe ? ' <span style="color:var(--neon);font-size:10px">(أنت)</span>' : ''}</div>
+        <div class="p-stat-status">${p.answered ? '✅ أجاب' : '⏳ ينتظر'}</div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px">
+        <div class="p-stat-score">${p.score || 0}</div>
+        ${p.lastPoints != null ? `<div style="font-size:10px;font-weight:700;color:${p.lastPoints>0?'var(--correct)':'rgba(255,255,255,.25)'}">${p.lastPoints>0?'+'+p.lastPoints:'—'}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ===== GUEST ACTIONS =====
+function guestJoin() {
+  const name = document.getElementById('gName').value.trim();
+  const code = document.getElementById('gCode').value.trim();
+  if (!name) { notify('⚠️ أدخل اسمك أولاً'); return; }
+  if (code.length !== 3 || isNaN(code)) { notify('⚠️ الكود يجب أن يكون 3 أرقام'); return; }
+  socket.emit('guest:join', { code, name }, (res) => {
+    if (res.error) { notify('❌ ' + res.error); return; }
+    S.roomCode = code;
+    S.name = name;
+    S.isHost = false;
+    document.getElementById('pNameBadge').textContent = `👤 ${name}`;
+    go('player-screen');
+    notify(`🎉 مرحباً ${name}! دخلت الغرفة ${code}`);
+  });
+}
+
+function renderPlayerQuestion(data) {
+  document.getElementById('pWaiting').style.display = 'none';
+  document.getElementById('pGame').style.display = 'block';
+  document.getElementById('pCat').textContent = data.category;
+  document.getElementById('pQText').textContent = data.question;
+  const letters = ['أ','ب','ج','د'];
+  document.getElementById('pOpts').innerHTML = data.options.map((o,i) => `
+    <button class="p-opt" id="pOpt${i}" onclick="playerAnswer(${i})">
+      <span class="opt-ltr">${letters[i]}</span>
+      <span>${o}</span>
+    </button>`).join('');
+
+  clearInterval(S.timerInterval);
+  // تصحيح فارق الساعة بين السيرفر والمتصفح
+  const clockOffset = data.serverNow ? (Date.now() - data.serverNow) : 0;
+  const elapsed = (Date.now() - clockOffset - data.startTime) / 1000;
+  let rem = Math.min(10, Math.max(0, 10 - elapsed));
+  document.getElementById('pTimer').textContent = Math.ceil(rem);
+  S.timerInterval = setInterval(() => {
+    rem -= 0.1;
+    document.getElementById('pTimer').textContent = Math.max(0, Math.ceil(rem));
+    if (rem <= 0) { clearInterval(S.timerInterval); disablePlayerOpts(); }
+  }, 100);
+}
+
+function playerAnswer(idx) {
+  if (S.answered) return;
+  S.answered = true;
+  clearInterval(S.timerInterval);
+  disablePlayerOpts();
+  document.getElementById(`pOpt${idx}`)?.classList.add('sel');
+  socket.emit('player:answer', { optIndex: idx });
+  notify('✅ تم تسجيل إجابتك!');
+}
+
+function revealPlayerOpts(correctIdx) {
+  document.querySelectorAll('.p-opt').forEach((btn,i) => {
+    btn.disabled = true;
+    if (i === correctIdx) btn.classList.add('correct');
+    else if (btn.classList.contains('sel')) btn.classList.add('wrong');
+  });
+}
+
+function disablePlayerOpts() {
+  document.querySelectorAll('.p-opt').forEach(b => b.disabled = true);
+}
+
+// ===== FINAL =====
+function showFinal(players) {
+  clearInterval(S.timerInterval);
+  const medals = ['🥇','🥈','🥉'];
+  document.getElementById('finalLB').innerHTML = players.map((p,i) => `
+    <div class="lb-item" style="animation-delay:${i*.15}s">
+      <span class="lb-rank">${medals[i]||'#'+(i+1)}</span>
+      <span class="lb-name">${p.isHost?'<span class="host-crown">👑</span>':''} ${p.name}</span>
+      <span class="lb-pts">${p.score||0} ✦</span>
+    </div>`).join('');
+  go('s-final');
+  setTimeout(confetti, 300);
+  setTimeout(confetti, 900);
+}
+
+function restart() {
+  clearInterval(S.timerInterval);
+  const savedToken = S.token;
+  const savedName = S.userName;
+  const savedPlan = S.userPlan;
+  S = { roomCode:null, isHost:false, name:null, playerId:null, score:0, answered:false,
+        currentQ:null, timerInterval:null, timerVal:10, usedIdx:[], players:[], revealDone:false,
+        token: savedToken, userName: savedName, userPlan: savedPlan };
+  document.getElementById('pWaiting').style.display = 'block';
+  document.getElementById('pGame').style.display = 'none';
+  document.getElementById('pScoreBadge').textContent = '0';
+  document.getElementById('hTimer').textContent = '⏱';
+  document.getElementById('hTimerBar').style.width = '100%';
+  document.getElementById('hQBox').innerHTML = '<span style="color:rgba(255,255,255,.3)">اضغط "سؤال جديد" لبدء الجولة</span>';
+  go('s-entry');
+}
+
+authInit();
+initSocket();
+</script>
+</body>
+</html>
