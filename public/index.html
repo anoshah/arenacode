@@ -324,29 +324,23 @@ body{font-family:'Tajawal',sans-serif;background:var(--dark);color:var(--text);m
   </div>
 </div>
 
-<!-- ===== VERIFY CODE ===== -->
-<div class="screen" id="s-verify">
-  <div class="card" style="max-width:440px;">
-    <div style="text-align:center;margin-bottom:20px;">
-      <span style="font-size:48px">📧</span>
-      <div class="card-title" style="margin-bottom:4px">تحقق من بريدك</div>
-      <p style="color:rgba(255,255,255,.4);font-size:13px">أرسلنا كود مكون من 6 أرقام إلى</p>
-      <p style="color:var(--neon);font-size:14px;font-weight:700" id="verifyEmailDisplay">—</p>
+<!-- ===== EMAIL SENT ===== -->
+<div class="screen" id="s-email-sent">
+  <div class="card" style="max-width:440px;text-align:center;">
+    <span style="font-size:64px;display:block;margin-bottom:16px">📧</span>
+    <div class="card-title">تحقق من بريدك!</div>
+    <p style="color:rgba(255,255,255,.5);font-size:14px;line-height:1.7;margin-bottom:8px">
+      أرسلنا رابط التفعيل إلى:
+    </p>
+    <p style="color:var(--neon);font-size:15px;font-weight:700;margin-bottom:20px;direction:ltr" id="sentEmailDisplay">—</p>
+    <p style="color:rgba(255,255,255,.35);font-size:12px;margin-bottom:24px">
+      اضغط على الرابط في الإيميل لتفعيل حسابك.<br>الرابط صالح لمدة 24 ساعة.
+    </p>
+    <div style="background:rgba(255,255,255,.05);border-radius:12px;padding:14px;margin-bottom:16px;">
+      <p style="color:rgba(255,255,255,.35);font-size:11px;margin-bottom:10px">لم يصلك الإيميل؟</p>
+      <button class="btn btn-ghost" style="width:100%" onclick="resendActivationFromScreen()">🔄 إعادة إرسال الرابط</button>
     </div>
-    <div class="verify-code-inputs" id="codeInputs">
-      <input type="text" maxlength="1" inputmode="numeric" oninput="codeInput(this,0)" onkeydown="codeKey(event,0)">
-      <input type="text" maxlength="1" inputmode="numeric" oninput="codeInput(this,1)" onkeydown="codeKey(event,1)">
-      <input type="text" maxlength="1" inputmode="numeric" oninput="codeInput(this,2)" onkeydown="codeKey(event,2)">
-      <input type="text" maxlength="1" inputmode="numeric" oninput="codeInput(this,3)" onkeydown="codeKey(event,3)">
-      <input type="text" maxlength="1" inputmode="numeric" oninput="codeInput(this,4)" onkeydown="codeKey(event,4)">
-      <input type="text" maxlength="1" inputmode="numeric" oninput="codeInput(this,5)" onkeydown="codeKey(event,5)">
-    </div>
-    <button class="btn btn-gold" onclick="doVerifyCode()">✅ تفعيل الحساب</button>
-    <div style="text-align:center;margin-top:14px">
-      <div class="resend-timer" id="resendTimer">يمكنك إعادة الإرسال بعد <span id="resendCount">60</span> ثانية</div>
-      <button class="resend-btn" id="resendBtn" style="display:none" onclick="doResendCode()">🔄 إعادة إرسال الكود</button>
-    </div>
-    <button class="btn btn-ghost" style="margin-top:10px" onclick="go('s-auth')">← رجوع</button>
+    <button class="btn btn-ghost" onclick="go('s-auth')">← رجوع لتسجيل الدخول</button>
   </div>
 </div>
 <div class="screen" id="s-host-setup">
@@ -605,144 +599,70 @@ function switchTab(tab) {
 
 async function doLogin() {
   const email = document.getElementById('loginEmail').value.trim();
-  const pass = document.getElementById('loginPass').value;
+  const pass  = document.getElementById('loginPass').value;
   if (!email || !pass) { notify('⚠️ أدخل البريد وكلمة المرور'); return; }
+  document.getElementById('resendBox').style.display = 'none';
 
   const res = await fetch('/api/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ email, password: pass })
   }).then(r => r.json());
 
   if (res.error) {
-    // لو الحساب غير مفعّل انتقل لشاشة التحقق
-    if (res.needsVerify) {
-      S.pendingEmail = res.email;
-      await fetch('/api/resend-code', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: res.email })
-      });
-      openVerifyScreen(res.email);
-      notify('📧 أرسلنا كود تفعيل إلى بريدك');
-      return;
+    notify('❌ ' + res.error);
+    if (res.notActivated) {
+      S.pendingEmail = email;
+      document.getElementById('resendBox').style.display = 'block';
     }
-    notify('❌ ' + res.error); return;
+    return;
   }
 
-  S.token = res.token;
-  S.userName = res.name;
-  S.userPlan = res.plan;
+  S.token = res.token; S.userName = res.name; S.userPlan = res.plan;
   localStorage.setItem('qa_token', res.token);
-  localStorage.setItem('qa_name', res.name);
-  localStorage.setItem('qa_plan', res.plan);
-
+  localStorage.setItem('qa_name',  res.name);
+  localStorage.setItem('qa_plan',  res.plan);
   notify('✅ مرحباً ' + res.name + '!');
   openHostSetup();
 }
 
 async function doRegister() {
-  const name = document.getElementById('regName').value.trim();
+  const name  = document.getElementById('regName').value.trim();
   const email = document.getElementById('regEmail').value.trim();
-  const pass = document.getElementById('regPass').value;
+  const pass  = document.getElementById('regPass').value;
   if (!name || !email || !pass) { notify('⚠️ جميع الحقول مطلوبة'); return; }
 
   const res = await fetch('/api/register', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ name, email, password: pass })
   }).then(r => r.json());
 
   if (res.error) { notify('❌ ' + res.error); return; }
 
-  // انتقل لشاشة التحقق
+  // أظهر شاشة "تم إرسال الرابط"
   S.pendingEmail = email;
-  openVerifyScreen(email);
-  notify('📧 تم إرسال كود التحقق إلى بريدك!');
+  document.getElementById('sentEmailDisplay').textContent = email;
+  go('s-email-sent');
+  notify('📧 تم إرسال رابط التفعيل إلى بريدك!');
 }
 
-// ===== VERIFY FUNCTIONS =====
-let resendCountdown;
-
-function openVerifyScreen(email) {
-  document.getElementById('verifyEmailDisplay').textContent = email;
-  const inputs = document.querySelectorAll('#codeInputs input');
-  inputs.forEach(el => { el.value = ''; });
-  go('s-verify');
-  setTimeout(() => inputs[0].focus(), 300);
-  startResendTimer(60);
-}
-
-function codeInput(el, idx) {
-  el.value = el.value.replace(/\D/g, '').slice(-1);
-  const inputs = document.querySelectorAll('#codeInputs input');
-  if (el.value && idx < 5) inputs[idx + 1].focus();
-  const code = getVerifyCode();
-  if (code.length === 6) doVerifyCode();
-}
-
-function codeKey(e, idx) {
-  const inputs = document.querySelectorAll('#codeInputs input');
-  if (e.key === 'Backspace' && !inputs[idx].value && idx > 0)
-    inputs[idx - 1].focus();
-}
-
-function getVerifyCode() {
-  return [...document.querySelectorAll('#codeInputs input')].map(i => i.value).join('');
-}
-
-async function doVerifyCode() {
-  const code = getVerifyCode();
-  if (code.length < 6) { notify('⚠️ أدخل الكود كاملاً (6 أرقام)'); return; }
-
-  const res = await fetch('/api/verify-code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: S.pendingEmail, code })
-  }).then(r => r.json());
-
-  if (res.error) { notify('❌ ' + res.error); return; }
-
-  S.token = res.token;
-  S.userName = res.name;
-  S.userPlan = res.plan;
-  S.pendingEmail = null;
-  localStorage.setItem('qa_token', res.token);
-  localStorage.setItem('qa_name', res.name);
-  localStorage.setItem('qa_plan', res.plan);
-
-  notify('🎉 تم تفعيل حسابك! مرحباً ' + res.name);
-  openHostSetup();
-}
-
-async function doResendCode() {
-  const res = await fetch('/api/resend-code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+async function resendActivation() {
+  if (!S.pendingEmail) return;
+  const res = await fetch('/api/resend-activation', {
+    method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ email: S.pendingEmail })
   }).then(r => r.json());
-
   if (res.error) { notify('❌ ' + res.error); return; }
-  notify('📧 تم إعادة إرسال الكود!');
-  startResendTimer(60);
+  notify('📧 تم إعادة إرسال الرابط!');
 }
 
-function startResendTimer(seconds) {
-  const btn = document.getElementById('resendBtn');
-  const timer = document.getElementById('resendTimer');
-  clearInterval(resendCountdown);
-  btn.style.display = 'none';
-  timer.style.display = 'inline';
-  let s = seconds;
-  timer.textContent = `(أعد الإرسال بعد ${s}ث)`;
-  resendCountdown = setInterval(() => {
-    s--;
-    timer.textContent = `(أعد الإرسال بعد ${s}ث)`;
-    if (s <= 0) {
-      clearInterval(resendCountdown);
-      timer.style.display = 'none';
-      btn.style.display = 'inline';
-    }
-  }, 1000);
+async function resendActivationFromScreen() {
+  if (!S.pendingEmail) { notify('⚠️ حدث خطأ، ارجع وحاول مجدداً'); return; }
+  const res = await fetch('/api/resend-activation', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ email: S.pendingEmail })
+  }).then(r => r.json());
+  if (res.error) { notify('❌ ' + res.error); return; }
+  notify('📧 تم إعادة إرسال الرابط!');
 }
 
 function doLogout() {
