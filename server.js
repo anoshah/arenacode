@@ -4,7 +4,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const crypto = require('crypto');
 const { MongoClient } = require('mongodb');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
 const app = express();
 const server = http.createServer(app);
@@ -13,86 +13,76 @@ const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ===================================================
-// ===== MongoDB =====
-// ===================================================
-const MONGO_URI = process.env.MONGODB_URI;
-if (!MONGO_URI) { console.error('❌ MONGODB_URI غير موجود!'); process.exit(1); }
+// ===== ENV =====
+const MONGO_URI   = process.env.MONGODB_URI;
+const RESEND_KEY  = process.env.RESEND_API_KEY;
+const FROM_EMAIL  = process.env.FROM_EMAIL || 'onboarding@resend.dev';
+const SITE_URL    = process.env.SITE_URL || 'http://localhost:3000';
 
-let usersCol, adminCol, pendingCol;
+if (!MONGO_URI)  { console.error('❌ MONGODB_URI مفقود'); process.exit(1); }
+if (!RESEND_KEY) { console.error('❌ RESEND_API_KEY مفقود'); process.exit(1); }
+
+const resend = new Resend(RESEND_KEY);
+
+// ===== MongoDB =====
+let usersCol, adminCol, codesCol;
 
 async function connectDB() {
   const client = new MongoClient(MONGO_URI);
   await client.connect();
   const db = client.db('quizarena');
-  usersCol  = db.collection('users');
-  adminCol  = db.collection('admin');
-  pendingCol = db.collection('pending'); // حسابات بانتظار التفعيل
+  usersCol = db.collection('users');
+  adminCol = db.collection('admin');
+  codesCol = db.collection('verification_codes');
 
   await usersCol.createIndex({ email: 1 }, { unique: true });
-  await pendingCol.createIndex({ email: 1 }, { unique: true });
-  await pendingCol.createIndex({ createdAt: 1 }, { expireAfterSeconds: 86400 }); // تنتهي بعد 24 ساعة
+  // كود التحقق ينتهي تلقائياً بعد 10 دقائق
+  await codesCol.createIndex({ createdAt: 1 }, { expireAfterSeconds: 600 });
 
   const adminDoc = await adminCol.findOne({ _id: 'config' });
   if (!adminDoc) {
     await adminCol.insertOne({ _id: 'config', password: hashPassword('admin123'), sessionTokens: [] });
-    console.log('✅ تم إنشاء حساب الأدمن الافتراضي (admin123)');
+    console.log('✅ حساب الأدمن الافتراضي: admin123');
   }
   console.log('✅ MongoDB متصل');
 }
 
-// ===================================================
-// ===== Nodemailer (Gmail) =====
-// ===================================================
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS
-  }
-});
-
-async function sendActivationEmail(toEmail, name, activationLink) {
-  await transporter.sendMail({
-    from: `"أريناكويز ⚡" <${process.env.GMAIL_USER}>`,
-    to: toEmail,
-    subject: '✅ تفعيل حسابك في أريناكويز',
-    html: `
-    <div dir="rtl" style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;background:#050A1A;color:#E8F4FD;border-radius:16px;overflow:hidden;">
-      <div style="background:linear-gradient(135deg,#FFD700,#FFA500);padding:28px;text-align:center;">
-        <div style="font-size:48px;">⚡</div>
-        <h1 style="margin:8px 0;color:#000;font-size:26px;">أريناكويز</h1>
-        <p style="color:#333;margin:0;font-size:13px;">ARENA QUIZ — بطولة المعرفة</p>
-      </div>
-      <div style="padding:32px;">
-        <h2 style="color:#FFD700;margin-bottom:8px;">مرحباً ${name}! 👋</h2>
-        <p style="color:#aaa;font-size:15px;line-height:1.7;">شكراً لتسجيلك في أريناكويز. اضغط على الزر أدناه لتفعيل حسابك والبدء في إنشاء المسابقات.</p>
-        <div style="text-align:center;margin:32px 0;">
-          <a href="${activationLink}" style="background:linear-gradient(135deg,#FFD700,#FFA500);color:#000;text-decoration:none;padding:16px 40px;border-radius:12px;font-size:18px;font-weight:bold;display:inline-block;">
-            🚀 تفعيل الحساب
-          </a>
-        </div>
-        <p style="color:#555;font-size:12px;text-align:center;">الرابط صالح لمدة 24 ساعة فقط</p>
-        <hr style="border:1px solid #1a2a3a;margin:24px 0;">
-        <p style="color:#333;font-size:11px;text-align:center;">إذا لم تقم بإنشاء هذا الحساب، تجاهل هذا الإيميل.</p>
-      </div>
-    </div>`
-  });
-}
-
-// ===================================================
-// ===== Crypto =====
-// ===================================================
+// ===== Helpers =====
 function hashPassword(p) {
   return crypto.createHash('sha256').update(p + 'quizarena_salt').digest('hex');
 }
 function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
+function generateCode() {
+  return String(Math.floor(100000 + Math.random() * 900000)); // 6 أرقام
+}
 
-// ===================================================
+// ===== إرسال إيميل التحقق =====
+async function sendVerificationEmail(email, name, code) {
+  await resend.emails.send({
+    from: FROM_EMAIL,
+    to: email,
+    subject: `${code} — كود تفعيل حسابك في أريناكويز`,
+    html: `
+      <div dir="rtl" style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;background:#050A1A;color:#E8F4FD;padding:32px;border-radius:16px;">
+        <div style="text-align:center;margin-bottom:24px;">
+          <span style="font-size:48px">⚡</span>
+          <h1 style="color:#FFD700;margin:8px 0;font-size:24px">أريناكويز</h1>
+        </div>
+        <p style="font-size:16px">مرحباً <strong>${name}</strong>،</p>
+        <p style="color:rgba(255,255,255,0.6)">أدخل الكود التالي لتفعيل حسابك:</p>
+        <div style="background:rgba(255,215,0,0.1);border:2px solid #FFD700;border-radius:12px;padding:24px;text-align:center;margin:24px 0;">
+          <span style="font-size:48px;font-weight:900;color:#FFD700;letter-spacing:12px">${code}</span>
+        </div>
+        <p style="color:rgba(255,255,255,0.4);font-size:13px;text-align:center">⏱ الكود صالح لمدة 10 دقائق فقط</p>
+        <p style="color:rgba(255,255,255,0.3);font-size:12px;text-align:center;margin-top:24px">إذا لم تطلب هذا الكود، تجاهل هذا الإيميل</p>
+      </div>
+    `
+  });
+}
+
 // ===== Admin Middleware =====
-// ===================================================
 async function adminAuth(req, res, next) {
   const token = req.headers['x-admin-token'];
   if (!token) return res.status(401).json({ error: 'غير مصرح' });
@@ -106,7 +96,7 @@ async function adminAuth(req, res, next) {
 // ===== API: المستخدمون =====
 // ===================================================
 
-// تسجيل — يرسل رابط تفعيل
+// الخطوة 1: تسجيل → إرسال كود التحقق
 app.post('/api/register', async (req, res) => {
   try {
     const { email, password, name } = req.body;
@@ -114,114 +104,82 @@ app.post('/api/register', async (req, res) => {
     if (password.length < 6) return res.json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' });
 
     const key = email.toLowerCase().trim();
-
-    // تحقق إذا البريد مسجل مسبقاً
     const exists = await usersCol.findOne({ email: key });
     if (exists) return res.json({ error: 'البريد مسجل مسبقاً' });
 
-    // احذف أي طلب تسجيل قديم لنفس البريد
-    await pendingCol.deleteOne({ email: key });
+    // احذف أي كود قديم لنفس البريد
+    await codesCol.deleteMany({ email: key });
 
-    // أنشئ رابط التفعيل
-    const activationToken = generateToken();
-    const BASE_URL = process.env.BASE_URL || `https://${req.headers.host}`;
-    const activationLink = `${BASE_URL}/api/activate/${activationToken}`;
-
-    // احفظ في pending مؤقتاً
-    await pendingCol.insertOne({
-      name: name.trim(), email: key,
+    // أنشئ كود جديد واحفظه
+    const code = generateCode();
+    await codesCol.insertOne({
+      email: key, name: name.trim(),
       password: hashPassword(password),
-      activationToken,
+      code,
       createdAt: new Date()
     });
 
     // أرسل الإيميل
-    await sendActivationEmail(key, name.trim(), activationLink);
+    await sendVerificationEmail(key, name.trim(), code);
 
-    res.json({ success: true, message: 'تم إرسال رابط التفعيل إلى بريدك الإلكتروني' });
+    res.json({ success: true, message: 'تم إرسال كود التحقق إلى بريدك الإلكتروني' });
   } catch(e) {
-    console.error('Register error:', e.message);
-    res.json({ error: 'خطأ في الإرسال، تحقق من بريدك الإلكتروني' });
+    console.error(e);
+    res.json({ error: 'خطأ في إرسال الإيميل، تحقق من البريد الإلكتروني' });
   }
 });
 
-// تفعيل الحساب عبر الرابط
-app.get('/api/activate/:token', async (req, res) => {
+// الخطوة 2: التحقق من الكود → إنشاء الحساب
+app.post('/api/verify-code', async (req, res) => {
   try {
-    const { token } = req.params;
-    const pending = await pendingCol.findOne({ activationToken: token });
+    const { email, code } = req.body;
+    if (!email || !code) return res.json({ error: 'البريد والكود مطلوبان' });
 
-    if (!pending) {
-      return res.send(`
-        <html><head><meta charset="UTF-8"><title>خطأ</title></head>
-        <body dir="rtl" style="font-family:Arial;background:#050A1A;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
-          <div style="text-align:center;padding:40px;background:rgba(255,51,85,.1);border:1px solid rgba(255,51,85,.3);border-radius:16px;">
-            <div style="font-size:56px">❌</div>
-            <h2 style="color:#FF3355">رابط غير صالح أو منتهي</h2>
-            <p style="color:#aaa">الرابط انتهت صلاحيته أو تم استخدامه مسبقاً</p>
-            <a href="/" style="color:#FFD700">← العودة للموقع</a>
-          </div>
-        </body></html>`);
-    }
+    const key = email.toLowerCase().trim();
+    const record = await codesCol.findOne({ email: key });
 
-    // أنشئ الحساب الفعلي
-    const userToken = generateToken();
+    if (!record)           return res.json({ error: 'لم يتم إرسال كود لهذا البريد، سجّل من جديد' });
+    if (record.code !== code) return res.json({ error: 'الكود غير صحيح' });
+
+    // إنشاء الحساب
+    const token = generateToken();
     await usersCol.insertOne({
-      name: pending.name, email: pending.email,
-      password: pending.password,
+      name: record.name, email: key,
+      password: record.password,
       plan: 'free', active: true,
       roomsThisMonth: 0,
       monthKey: new Date().toISOString().slice(0,7),
       createdAt: new Date().toISOString(),
-      token: userToken
+      token
     });
 
-    // احذف من pending
-    await pendingCol.deleteOne({ activationToken: token });
+    // احذف الكود بعد الاستخدام
+    await codesCol.deleteMany({ email: key });
 
-    // أعد توجيه للموقع مع رسالة نجاح
-    return res.send(`
-      <html><head><meta charset="UTF-8"><title>تم التفعيل</title>
-      <meta http-equiv="refresh" content="3;url=/">
-      </head>
-      <body dir="rtl" style="font-family:Arial;background:#050A1A;color:#fff;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
-        <div style="text-align:center;padding:40px;background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.3);border-radius:16px;">
-          <div style="font-size:56px">🎉</div>
-          <h2 style="color:#00FF88">تم تفعيل حسابك بنجاح!</h2>
-          <p style="color:#aaa">مرحباً ${pending.name}، يمكنك الآن تسجيل الدخول</p>
-          <p style="color:#555;font-size:13px">سيتم تحويلك تلقائياً خلال 3 ثوانٍ...</p>
-          <a href="/" style="background:linear-gradient(135deg,#FFD700,#FFA500);color:#000;padding:12px 28px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block;margin-top:16px;">🚀 ابدأ الآن</a>
-        </div>
-      </body></html>`);
+    res.json({ success: true, token, name: record.name, plan: 'free' });
   } catch(e) {
-    console.error('Activate error:', e.message);
-    res.send('<h2>خطأ في التفعيل</h2>');
+    console.error(e);
+    res.json({ error: 'خطأ في السيرفر' });
   }
 });
 
-// إعادة إرسال رابط التفعيل
-app.post('/api/resend-activation', async (req, res) => {
+// إعادة إرسال الكود
+app.post('/api/resend-code', async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email) return res.json({ error: 'أدخل البريد الإلكتروني' });
+    if (!email) return res.json({ error: 'البريد مطلوب' });
+
     const key = email.toLowerCase().trim();
+    const record = await codesCol.findOne({ email: key });
+    if (!record) return res.json({ error: 'لا يوجد طلب تسجيل لهذا البريد' });
 
-    const alreadyActive = await usersCol.findOne({ email: key });
-    if (alreadyActive) return res.json({ error: 'الحساب مفعّل مسبقاً، سجّل دخولك' });
+    const code = generateCode();
+    await codesCol.updateOne({ email: key }, { $set: { code, createdAt: new Date() } });
+    await sendVerificationEmail(key, record.name, code);
 
-    const pending = await pendingCol.findOne({ email: key });
-    if (!pending) return res.json({ error: 'البريد غير مسجل، أنشئ حساباً جديداً' });
-
-    const activationToken = generateToken();
-    const BASE_URL = process.env.BASE_URL || `https://${req.headers.host}`;
-    const activationLink = `${BASE_URL}/api/activate/${activationToken}`;
-
-    await pendingCol.updateOne({ email: key }, { $set: { activationToken, createdAt: new Date() } });
-    await sendActivationEmail(key, pending.name, activationLink);
-
-    res.json({ success: true, message: 'تم إعادة إرسال رابط التفعيل' });
+    res.json({ success: true, message: 'تم إعادة إرسال الكود' });
   } catch(e) {
-    res.json({ error: 'خطأ في الإرسال' });
+    res.json({ error: 'خطأ في إرسال الإيميل' });
   }
 });
 
@@ -232,22 +190,16 @@ app.post('/api/login', async (req, res) => {
     if (!email || !password) return res.json({ error: 'أدخل البريد وكلمة المرور' });
     const key = email.toLowerCase().trim();
     const user = await usersCol.findOne({ email: key });
-
-    if (!user) {
-      // تحقق إذا في pending
-      const pending = await pendingCol.findOne({ email: key });
-      if (pending) return res.json({ error: 'الحساب غير مفعّل، تحقق من بريدك الإلكتروني', notActivated: true });
-      return res.json({ error: 'البريد غير مسجل' });
-    }
+    if (!user)        return res.json({ error: 'البريد غير مسجل' });
     if (!user.active) return res.json({ error: 'الحساب موقوف، تواصل مع الإدارة' });
     if (user.password !== hashPassword(password)) return res.json({ error: 'كلمة المرور غير صحيحة' });
-
     const token = generateToken();
     await usersCol.updateOne({ email: key }, { $set: { token, lastLogin: new Date().toISOString() } });
     res.json({ success: true, token, name: user.name, plan: user.plan });
   } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
 });
 
+// التحقق من التوكن
 app.post('/api/verify', async (req, res) => {
   try {
     const { token } = req.body;
@@ -280,7 +232,7 @@ app.post('/admin/api/login', async (req, res) => {
 app.post('/admin/api/change-password', adminAuth, async (req, res) => {
   try {
     const { newPassword } = req.body;
-    if (!newPassword || newPassword.length < 6) return res.json({ error: 'كلمة المرور قصيرة جداً' });
+    if (!newPassword || newPassword.length < 6) return res.json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' });
     await adminCol.updateOne({ _id: 'config' }, { $set: { password: hashPassword(newPassword), sessionTokens: [] } });
     res.json({ success: true });
   } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
@@ -300,12 +252,7 @@ app.post('/admin/api/users', adminAuth, async (req, res) => {
     const key = email.toLowerCase().trim();
     const exists = await usersCol.findOne({ email: key });
     if (exists) return res.json({ error: 'البريد مسجل مسبقاً' });
-    await usersCol.insertOne({
-      name: name.trim(), email: key, password: hashPassword(password),
-      plan: plan || 'free', active: true, roomsThisMonth: 0,
-      monthKey: new Date().toISOString().slice(0,7),
-      createdAt: new Date().toISOString(), token: generateToken()
-    });
+    await usersCol.insertOne({ name: name.trim(), email: key, password: hashPassword(password), plan: plan || 'free', active: true, roomsThisMonth: 0, monthKey: new Date().toISOString().slice(0,7), createdAt: new Date().toISOString(), token: generateToken() });
     res.json({ success: true });
   } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
 });
@@ -337,15 +284,14 @@ app.delete('/admin/api/users/:email', adminAuth, async (req, res) => {
 
 app.get('/admin/api/stats', adminAuth, async (req, res) => {
   try {
-    const [total, pro, free, active, inactive, pending] = await Promise.all([
+    const [total, pro, free, active, inactive] = await Promise.all([
       usersCol.countDocuments(),
       usersCol.countDocuments({ plan: 'pro' }),
       usersCol.countDocuments({ plan: 'free' }),
       usersCol.countDocuments({ active: true }),
       usersCol.countDocuments({ active: false }),
-      pendingCol.countDocuments(),
     ]);
-    res.json({ total, pro, free, active, inactive, pending });
+    res.json({ total, pro, free, active, inactive });
   } catch(e) { res.json({ error: 'خطأ في السيرفر' }); }
 });
 
@@ -369,7 +315,7 @@ async function canCreateRoom(token) {
 // ===== منطق اللعبة =====
 // ===================================================
 const rooms = {};
-function generateCode() {
+function generateRoomCode() {
   let code;
   do { code = String(Math.floor(100 + Math.random() * 900)); } while (rooms[code]);
   return code;
@@ -379,10 +325,11 @@ function getPlayers(room) {
 }
 
 io.on('connection', (socket) => {
+
   socket.on('host:create', async ({ name, token }, cb) => {
     const check = await canCreateRoom(token);
     if (!check.allowed) return cb({ error: check.reason });
-    const code = generateCode();
+    const code = generateRoomCode();
     rooms[code] = { code, hostId: socket.id, players: {}, status: 'waiting', question: null, fastestAnswer: null, questionIndex: 0 };
     rooms[code].players[socket.id] = { id: socket.id, name, score: 0, answered: false, isHost: true };
     socket.join(code); socket.roomCode = code; socket.isHost = true;
@@ -473,6 +420,7 @@ io.on('connection', (socket) => {
   });
 });
 
+// ===== تشغيل =====
 const PORT = process.env.PORT || 3000;
 connectDB().then(() => {
   server.listen(PORT, () => console.log(`🚀 ArenaQuiz on port ${PORT}`));
