@@ -240,6 +240,14 @@ body{font-family:'Tajawal',sans-serif;background:var(--dark);color:var(--text);m
 .btn-upgrade{background:linear-gradient(135deg,var(--gold),var(--gold2));color:#000;border:none;border-radius:10px;padding:10px 24px;font-family:'Tajawal',sans-serif;font-size:14px;font-weight:800;cursor:pointer;transition:all .3s;}
 .btn-upgrade:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(255,165,0,.4);}
 .inp-g .inp-hint{font-size:10px;color:rgba(255,255,255,.3);margin-top:4px;}
+
+/* ===== VERIFY SCREEN ===== */
+.verify-code-inputs{display:flex;gap:10px;justify-content:center;margin:20px 0;}
+.verify-code-inputs input{width:46px;height:58px;text-align:center;font-size:26px;font-weight:900;font-family:'Cairo',sans-serif;background:rgba(255,255,255,.07);border:2px solid rgba(255,255,255,.15);border-radius:12px;color:white;transition:all .3s;}
+.verify-code-inputs input:focus{outline:none;border-color:var(--gold);background:rgba(255,215,0,.08);box-shadow:0 0 16px rgba(255,215,0,.2);}
+.resend-btn{background:none;border:none;color:rgba(0,245,255,.6);font-family:'Tajawal',sans-serif;font-size:13px;cursor:pointer;text-decoration:underline;margin-top:8px;}
+.resend-btn:hover{color:var(--neon);}
+.resend-timer{color:rgba(255,255,255,.3);font-size:12px;margin-top:8px;}
 </style>
 </head>
 <body>
@@ -316,7 +324,31 @@ body{font-family:'Tajawal',sans-serif;background:var(--dark);color:var(--text);m
   </div>
 </div>
 
-<!-- ===== HOST SETUP ===== -->
+<!-- ===== VERIFY CODE ===== -->
+<div class="screen" id="s-verify">
+  <div class="card" style="max-width:440px;">
+    <div style="text-align:center;margin-bottom:20px;">
+      <span style="font-size:48px">📧</span>
+      <div class="card-title" style="margin-bottom:4px">تحقق من بريدك</div>
+      <p style="color:rgba(255,255,255,.4);font-size:13px">أرسلنا كود مكون من 6 أرقام إلى</p>
+      <p style="color:var(--neon);font-size:14px;font-weight:700" id="verifyEmailDisplay">—</p>
+    </div>
+    <div class="verify-code-inputs" id="codeInputs">
+      <input type="text" maxlength="1" inputmode="numeric" oninput="codeInput(this,0)" onkeydown="codeKey(event,0)">
+      <input type="text" maxlength="1" inputmode="numeric" oninput="codeInput(this,1)" onkeydown="codeKey(event,1)">
+      <input type="text" maxlength="1" inputmode="numeric" oninput="codeInput(this,2)" onkeydown="codeKey(event,2)">
+      <input type="text" maxlength="1" inputmode="numeric" oninput="codeInput(this,3)" onkeydown="codeKey(event,3)">
+      <input type="text" maxlength="1" inputmode="numeric" oninput="codeInput(this,4)" onkeydown="codeKey(event,4)">
+      <input type="text" maxlength="1" inputmode="numeric" oninput="codeInput(this,5)" onkeydown="codeKey(event,5)">
+    </div>
+    <button class="btn btn-gold" onclick="doVerifyCode()">✅ تفعيل الحساب</button>
+    <div style="text-align:center;margin-top:14px">
+      <div class="resend-timer" id="resendTimer">يمكنك إعادة الإرسال بعد <span id="resendCount">60</span> ثانية</div>
+      <button class="resend-btn" id="resendBtn" style="display:none" onclick="doResendCode()">🔄 إعادة إرسال الكود</button>
+    </div>
+    <button class="btn btn-ghost" style="margin-top:10px" onclick="go('s-auth')">← رجوع</button>
+  </div>
+</div>
 <div class="screen" id="s-host-setup">
   <div class="card">
     <div class="card-title">👑 إعداد الغرفة</div>
@@ -533,7 +565,8 @@ let S = {
   timerInterval:null, timerVal:20, usedIdx:[], players:[],
   revealDone: false,
   // Auth
-  token: null, userName: null, userPlan: null
+  token: null, userName: null, userPlan: null,
+  pendingEmail: null
 };
 let socket;
 
@@ -581,7 +614,20 @@ async function doLogin() {
     body: JSON.stringify({ email, password: pass })
   }).then(r => r.json());
 
-  if (res.error) { notify('❌ ' + res.error); return; }
+  if (res.error) {
+    // لو الحساب غير مفعّل انتقل لشاشة التحقق
+    if (res.needsVerify) {
+      S.pendingEmail = res.email;
+      await fetch('/api/resend-code', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: res.email })
+      });
+      openVerifyScreen(res.email);
+      notify('📧 أرسلنا كود تفعيل إلى بريدك');
+      return;
+    }
+    notify('❌ ' + res.error); return;
+  }
 
   S.token = res.token;
   S.userName = res.name;
@@ -608,15 +654,95 @@ async function doRegister() {
 
   if (res.error) { notify('❌ ' + res.error); return; }
 
+  // انتقل لشاشة التحقق
+  S.pendingEmail = email;
+  openVerifyScreen(email);
+  notify('📧 تم إرسال كود التحقق إلى بريدك!');
+}
+
+// ===== VERIFY FUNCTIONS =====
+let resendCountdown;
+
+function openVerifyScreen(email) {
+  document.getElementById('verifyEmailDisplay').textContent = email;
+  const inputs = document.querySelectorAll('#codeInputs input');
+  inputs.forEach(el => { el.value = ''; });
+  go('s-verify');
+  setTimeout(() => inputs[0].focus(), 300);
+  startResendTimer(60);
+}
+
+function codeInput(el, idx) {
+  el.value = el.value.replace(/\D/g, '').slice(-1);
+  const inputs = document.querySelectorAll('#codeInputs input');
+  if (el.value && idx < 5) inputs[idx + 1].focus();
+  const code = getVerifyCode();
+  if (code.length === 6) doVerifyCode();
+}
+
+function codeKey(e, idx) {
+  const inputs = document.querySelectorAll('#codeInputs input');
+  if (e.key === 'Backspace' && !inputs[idx].value && idx > 0)
+    inputs[idx - 1].focus();
+}
+
+function getVerifyCode() {
+  return [...document.querySelectorAll('#codeInputs input')].map(i => i.value).join('');
+}
+
+async function doVerifyCode() {
+  const code = getVerifyCode();
+  if (code.length < 6) { notify('⚠️ أدخل الكود كاملاً (6 أرقام)'); return; }
+
+  const res = await fetch('/api/verify-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: S.pendingEmail, code })
+  }).then(r => r.json());
+
+  if (res.error) { notify('❌ ' + res.error); return; }
+
   S.token = res.token;
   S.userName = res.name;
   S.userPlan = res.plan;
+  S.pendingEmail = null;
   localStorage.setItem('qa_token', res.token);
   localStorage.setItem('qa_name', res.name);
   localStorage.setItem('qa_plan', res.plan);
 
-  notify('🎉 تم إنشاء حسابك! مرحباً ' + res.name);
+  notify('🎉 تم تفعيل حسابك! مرحباً ' + res.name);
   openHostSetup();
+}
+
+async function doResendCode() {
+  const res = await fetch('/api/resend-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: S.pendingEmail })
+  }).then(r => r.json());
+
+  if (res.error) { notify('❌ ' + res.error); return; }
+  notify('📧 تم إعادة إرسال الكود!');
+  startResendTimer(60);
+}
+
+function startResendTimer(seconds) {
+  const btn = document.getElementById('resendBtn');
+  const timer = document.getElementById('resendTimer');
+  clearInterval(resendCountdown);
+  btn.style.display = 'none';
+  timer.style.display = 'inline';
+  let s = seconds;
+  timer.textContent = `(أعد الإرسال بعد ${s}ث)`;
+  resendCountdown = setInterval(() => {
+    s--;
+    timer.textContent = `(أعد الإرسال بعد ${s}ث)`;
+    if (s <= 0) {
+      clearInterval(resendCountdown);
+      timer.style.display = 'none';
+      btn.style.display = 'inline';
+    }
+  }, 1000);
 }
 
 function doLogout() {
