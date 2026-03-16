@@ -1,6 +1,7 @@
 {
   "name": "quizarena",
   "version": "11.0.0",
+  "description": "أريناكويز — منصة مسابقات تفاعلية",
   "main": "server.js",
   "scripts": { "start": "node server.js" },
   "engines": { "node": ">=18.0.0" },
@@ -8,6 +9,6 @@
     "express": "^4.18.2",
     "socket.io": "^4.7.2",
     "mongodb": "^6.3.0",
-    "resend": "^3.2.0"
+    "nodemailer": "^6.9.8"
   }
 }
